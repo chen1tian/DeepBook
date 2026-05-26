@@ -11,10 +11,13 @@ interface Message {
 
 interface Props {
   task?: string | null;
+  bookId?: number | null;
+  bookName?: string;
+  activeBook?: { id: number; name: string; genre: string; style: string } | null;
   onBookCreated?: () => void;
 }
 
-export default function ChatWindow({ task, onBookCreated }: Props) {
+export default function ChatWindow({ task, bookId, bookName, activeBook, onBookCreated }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -32,6 +35,14 @@ export default function ChatWindow({ task, onBookCreated }: Props) {
     if (task === "create-story" && !initialized) {
       setInitialized(true);
       sendMessage("我想创建一本新故事", task);
+    }
+    if (task === "open-dialogue" && !initialized) {
+      setInitialized(true);
+      sendMessage(`我想为《${bookName || "故事"}》创建开场白`, task);
+    }
+    if (task === "new-dialogue" && !initialized) {
+      setInitialized(true);
+      sendMessage(`我想在《${bookName || "故事"}》中开始一个新对话`, task);
     }
   }, [task, initialized]);
 
@@ -65,6 +76,12 @@ export default function ChatWindow({ task, onBookCreated }: Props) {
       };
       if (overrideTask ?? task) {
         body.task = overrideTask ?? task;
+      }
+      if (bookId) {
+        body.bookId = bookId;
+      }
+      if (activeBook && !task) {
+        body.contextBook = activeBook;
       }
 
       const res = await fetch("/api/chat", {
@@ -148,6 +165,52 @@ export default function ChatWindow({ task, onBookCreated }: Props) {
                     };
                     return copy;
                   });
+                }
+
+                if (parsed.tool_result.name === "start_dialogue" && parsed.tool_result.success) {
+                  setMessages((prev) => {
+                    const copy = [...prev];
+                    copy[copy.length - 1] = {
+                      ...copy[copy.length - 1],
+                      content:
+                        copy[copy.length - 1].content +
+                        `\n\n✅ 开场白已创建！关闭此窗口，在对话界面中继续吧。`,
+                    };
+                    return copy;
+                  });
+                  window.dispatchEvent(
+                    new CustomEvent("deepbook:dialogue-started", {
+                      detail: {
+                        bookId: parsed.tool_result.bookId || bookId,
+                        dialogueId: parsed.tool_result.dialogueId,
+                      },
+                    })
+                  );
+                }
+
+                if (parsed.tool_result.name === "reuse_opening" && parsed.tool_result.success) {
+                  setMessages((prev) => {
+                    const copy = [...prev];
+                    copy[copy.length - 1] = {
+                      ...copy[copy.length - 1],
+                      content:
+                        copy[copy.length - 1].content +
+                        `\n\n✅ 新对话已创建！关闭此窗口继续吧。`,
+                    };
+                    return copy;
+                  });
+                  window.dispatchEvent(
+                    new CustomEvent("deepbook:dialogue-started", {
+                      detail: {
+                        bookId: parsed.tool_result.bookId || bookId,
+                        dialogueId: parsed.tool_result.dialogueId,
+                      },
+                    })
+                  );
+                }
+
+                if (parsed.tool_result.name === "close_dialogue" && parsed.tool_result.success) {
+                  window.dispatchEvent(new CustomEvent("deepbook:dialogue-closed"));
                 }
               }
             } catch {

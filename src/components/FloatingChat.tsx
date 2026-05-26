@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { MessageCircle, X, GripHorizontal } from "lucide-react";
 import ChatWindow from "./ChatWindow";
 import { getChatPosition, saveChatPosition, type ChatPosition } from "@/lib/storage";
@@ -26,24 +26,51 @@ export default function FloatingChat() {
     moved: false,
   });
 
+  const [bookId, setBookId] = useState<number | null>(null);
+  const [bookName, setBookName] = useState<string>("");
+  const [activeBook, setActiveBook] = useState<{ id: number; name: string; genre: string; style: string } | null>(null);
+
   // listen for task events from the page
   useEffect(() => {
     function handleNewStory() {
+      setBookId(null);
+      setBookName("");
       setTask("create-story");
       setOpen(true);
     }
+    function handleNewDialogue(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      setBookId(detail.bookId);
+      setBookName(detail.bookName || "");
+      setTask("new-dialogue");
+      setOpen(true);
+    }
+    function handleOpenDialogue(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      setBookId(detail.bookId);
+      setBookName(detail.bookName || "");
+      setTask("open-dialogue");
+      setOpen(true);
+    }
     window.addEventListener("deepbook:new-story", handleNewStory);
-    return () => window.removeEventListener("deepbook:new-story", handleNewStory);
+    window.addEventListener("deepbook:open-dialogue", handleOpenDialogue);
+    window.addEventListener("deepbook:new-dialogue", handleNewDialogue);
+    return () => {
+      window.removeEventListener("deepbook:new-story", handleNewStory);
+      window.removeEventListener("deepbook:open-dialogue", handleOpenDialogue);
+      window.removeEventListener("deepbook:new-dialogue", handleNewDialogue);
+    };
   }, []);
 
-  // reset task when closed
   function handleClose() {
     setOpen(false);
     setTask(null);
   }
 
   function handleOpen() {
-    setTask(null); // plain chat
+    setTask(null);
+    const ab = (window as unknown as Record<string, unknown>).__activeBook as typeof activeBook | undefined;
+    setActiveBook(ab || null);
     setOpen(true);
   }
 
@@ -102,9 +129,18 @@ export default function FloatingChat() {
     ? { position: "fixed" as const, bottom: PADDING, right: PADDING }
     : { position: "fixed" as const, left: pos.x, top: pos.y };
 
-  const panelStyle: React.CSSProperties = usingDefault
-    ? { position: "fixed" as const, bottom: PADDING, right: PADDING }
-    : { position: "fixed" as const, left: pos.x, top: pos.y };
+  // Compute panel position, clamped to viewport
+  const panelStyle: React.CSSProperties = useMemo(() => {
+    if (usingDefault) {
+      // default: right-bottom corner, naturally safe
+      return { position: "fixed" as const, bottom: PADDING, right: PADDING };
+    }
+    // dragged position: clamp panel so it doesn't overflow
+    const clamped = clamp(pos.x, pos.y, PANEL_W, PANEL_H);
+    return { position: "fixed" as const, left: clamped.x, top: clamped.y };
+  }, [usingDefault, pos.x, pos.y, clamp]);
+
+  const isTask = task === "create-story" || task === "open-dialogue" || task === "new-dialogue";
 
   return (
     <>
@@ -123,23 +159,17 @@ export default function FloatingChat() {
         </button>
       )}
 
-      {/* chat panel — large for tasks, small for casual chat */}
-      {open && (() => {
-        const isTask = task === "create-story";
-        const panelW = isTask ? "66.67vw" : `${PANEL_W}px`;
-        const panelH = isTask ? "80dvh" : `${PANEL_H}px`;
-        const posOverride: React.CSSProperties = isTask
-          ? { position: "fixed" as const, left: "50%", top: "50%", transform: "translate(-50%, -50%)" }
-          : panelStyle;
-
-        return (
+      {/* chat panel */}
+      {open && (
         <div
           style={{
-            ...posOverride,
-            width: panelW,
-            maxWidth: `calc(100vw - ${PADDING * 2}px)`,
-            height: panelH,
-            maxHeight: `calc(100dvh - ${PADDING * 2}px)`,
+            ...(isTask
+              ? { position: "fixed" as const, left: "50%", top: "50%", transform: "translate(-50%, -50%)" }
+              : panelStyle),
+            width: isTask ? "90vw" : `${PANEL_W}px`,
+            maxWidth: isTask ? "90vw" : `calc(100vw - ${PADDING * 2}px)`,
+            height: isTask ? "90dvh" : `${PANEL_H}px`,
+            maxHeight: isTask ? "90dvh" : `calc(100dvh - ${PADDING * 2}px)`,
           }}
           className="z-50 flex flex-col overflow-hidden rounded-xl bg-zinc-950 shadow-2xl ring-1 ring-white/10"
         >
@@ -153,7 +183,7 @@ export default function FloatingChat() {
             <div className="flex items-center gap-1 text-zinc-500">
               <GripHorizontal size={12} />
               <span className="text-xs font-medium text-zinc-400">
-                {task === "create-story" ? "创建故事" : "AI 助手"}
+                {task === "create-story" ? "创建故事" : task === "open-dialogue" ? "开场白创建" : task === "new-dialogue" ? "新建对话" : "AI 助手"}
               </span>
             </div>
             <button
@@ -170,16 +200,17 @@ export default function FloatingChat() {
             <ChatWindow
               key={task ?? "default"}
               task={task}
+              bookId={bookId}
+              bookName={bookName}
+              activeBook={activeBook}
               onBookCreated={() => {
-                // refresh homepage book list
                 const refresh = (window as unknown as Record<string, unknown>).__refreshBooks as (() => void) | undefined;
                 refresh?.();
               }}
             />
           </div>
         </div>
-        );
-      })()}
+      )}
     </>
   );
 }

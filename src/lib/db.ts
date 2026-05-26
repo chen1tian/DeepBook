@@ -4,6 +4,21 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 const DATA_DIR = join(process.cwd(), ".data");
 const BOOKS_FILE = join(DATA_DIR, "books.json");
 
+export interface Protagonist {
+  name: string;
+  description: string;
+}
+
+export interface DialogueConfig {
+  mode: "novel" | "roleplay";
+  pov: "first" | "third";
+  time: string;
+  place: string;
+  protagonist: Protagonist;
+  npcs: { name: string; description: string }[];
+  dialogue_system_prompt: string;
+}
+
 export interface Book {
   id: number;
   name: string;
@@ -12,6 +27,8 @@ export interface Book {
   system_prompt: string;
   cover_color: string;
   created_at: string;
+  active_dialogue_id: string | null;
+  dialogue_config: DialogueConfig | null;
 }
 
 function ensureDir() {
@@ -66,10 +83,21 @@ export async function createBook(book: {
     system_prompt: book.system_prompt,
     cover_color: book.cover_color || genreColor(book.genre),
     created_at: new Date().toISOString(),
+    active_dialogue_id: null,
+    dialogue_config: null,
   };
   books.push(newBook);
   writeBooks(books);
   return newBook;
+}
+
+export async function updateBook(id: number, patch: Partial<Book>): Promise<Book | null> {
+  const books = readBooks();
+  const idx = books.findIndex((b) => b.id === id);
+  if (idx === -1) return null;
+  books[idx] = { ...books[idx], ...patch };
+  writeBooks(books);
+  return books[idx];
 }
 
 export async function deleteBook(id: number): Promise<void> {
