@@ -155,6 +155,27 @@ export function deleteDialogue(bookId: number, dialogueId: string): void {
   removeMeta(bookId, dialogueId);
 }
 
+/** Delete specific messages from a dialogue by their indices */
+export function deleteMessages(dialogueId: string, indices: number[]): DialogueMessage[] {
+  const record = getDialogue(dialogueId);
+  if (!record) return [];
+  const indexSet = new Set(indices);
+  record.messages = record.messages.filter((_, i) => !indexSet.has(i));
+  writeFileSync(dialoguePath(dialogueId), JSON.stringify(record, null, 2), "utf-8");
+
+  // update index
+  const meta = readIndex(record.bookId).find((m) => m.id === dialogueId);
+  if (meta) {
+    meta.messageCount = record.messages.length;
+    const lastAssistant = [...record.messages].reverse().find((m) => m.role === "assistant");
+    if (lastAssistant) meta.lastMessage = lastAssistant.content.slice(-50);
+    else meta.lastMessage = "";
+    upsertMeta(meta);
+  }
+
+  return record.messages;
+}
+
 /** Get a summary of all openings for a book (for reuse) */
 export function getOpeningOptions(bookId: number): { dialogueId: string; name: string; opening: string }[] {
   const metas = readIndex(bookId).filter((m) => m.hasConfig);

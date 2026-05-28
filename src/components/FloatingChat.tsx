@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { MessageCircle, X, GripHorizontal } from "lucide-react";
+import { MessageCircle, X, GripHorizontal, User } from "lucide-react";
 import ChatWindow from "./ChatWindow";
 import { getChatPosition, saveChatPosition, getActivePersonaId, type ChatPosition } from "@/lib/storage";
+import { useView } from "@/lib/view-context";
 
 const BTN_SIZE = 48;
 const PANEL_W = 380;
@@ -15,6 +16,7 @@ export default function FloatingChat() {
   const [open, setOpen] = useState(false);
   const [task, setTask] = useState<string | null>(null);
   const [pos, setPos] = useState<ChatPosition>(() => getChatPosition());
+  const { togglePersonas } = useView();
 
   const dragState = useRef({
     active: false,
@@ -253,13 +255,23 @@ export default function FloatingChat() {
                 {task === "create-story" ? "创建故事" : task === "open-dialogue" ? "开场白创建" : task === "new-dialogue" ? "新建对话" : task === "edit-preset" ? "编辑预设" : task === "edit-persona" ? "编辑人格" : persona?.name || "AI 助手"}
               </span>
             </div>
-            <button
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={handleClose}
-              className="rounded p-1 text-zinc-500 transition hover:text-zinc-300"
-            >
-              <X size={14} />
-            </button>
+            <div className="flex items-center gap-0.5">
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={togglePersonas}
+                className="rounded p-1 text-zinc-500 transition hover:text-zinc-300"
+                title="人格"
+              >
+                <User size={14} />
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleClose}
+                className="rounded p-1 text-zinc-500 transition hover:text-zinc-300"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
 
           {/* chat content */}

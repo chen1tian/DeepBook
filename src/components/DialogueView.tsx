@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings } from "lucide-react";
+import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { getConnectionConfig } from "@/lib/storage";
 
@@ -45,6 +45,8 @@ export default function DialogueView({
   const [editGenre, setEditGenre] = useState(bookGenre);
   const [editStyle, setEditStyle] = useState(bookStyle);
   const [saving, setSaving] = useState(false);
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dialogues, setDialogues] = useState<DialogueMeta[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -83,9 +85,30 @@ export default function DialogueView({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  async function resendMessage(content: string) {
+    if (!dialogueId || streaming) return;
+    // Remove last user message from dialogue store
+    const lastIndex = messages.length - 1;
+    await fetch("/api/dialogue", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dialogueId, indices: [lastIndex] }),
+    });
+    // Remove from local state
+    setMessages((prev) => prev.slice(0, -1));
+    // Resend
+    await sendWithText(content);
+  }
+
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || streaming || !dialogueId) return;
+    setInput("");
+    await sendWithText(text);
+  }, [input, streaming, dialogueId, fetchList]);
+
+  async function sendWithText(text: string) {
+    if (!dialogueId) return;
 
     const config = getConnectionConfig();
     if (!config) return;
@@ -149,7 +172,37 @@ export default function DialogueView({
       setStreaming(false);
       fetchList();
     }
-  }, [input, streaming, dialogueId, fetchList]);
+  }
+
+  function toggleMessage(index: number) {
+    setSelectedIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        // deselect: only remove this one
+        next.delete(index);
+      } else {
+        // select: this one and all below
+        for (let i = index; i < messages.length; i++) {
+          next.add(i);
+        }
+      }
+      return next;
+    });
+  }
+
+  async function handleDeleteMessages() {
+    if (selectedIndices.size === 0) return;
+    const indices = Array.from(selectedIndices);
+    await fetch("/api/dialogue", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dialogueId, indices }),
+    });
+    setMessages((prev) => prev.filter((_, i) => !selectedIndices.has(i)));
+    setDeleteMode(false);
+    setSelectedIndices(new Set());
+    fetchList();
+  }
 
   async function handleDelete(dlgId: string) {
     await fetch(`/api/dialogues?bookId=${bookId}&dialogueId=${dlgId}`, { method: "DELETE" });
@@ -167,6 +220,20 @@ export default function DialogueView({
           <ArrowLeft size={16} />
         </button>
         <span className="flex-1 truncate text-xs font-medium text-zinc-400">{bookName}</span>
+
+        {/* delete mode toggle */}
+        {dialogueId && (
+          <button
+            onClick={() => {
+              setDeleteMode(!deleteMode);
+              setSelectedIndices(new Set());
+            }}
+            className={`rounded p-1 transition ${deleteMode ? "text-red-400" : "text-zinc-500 hover:text-zinc-300"}`}
+            title={deleteMode ? "退出删除模式" : "删除消息"}
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
 
         {/* menu button */}
         <div className="relative">
@@ -222,33 +289,87 @@ export default function DialogueView({
         )}
         {messages.map((m, i) => {
           const isUser = m.role === "user";
+          const isSelected = selectedIndices.has(i);
           return (
           <div
             key={i}
-            className={
-              isUser
-                ? "ml-auto max-w-[75%] rounded-xl rounded-br-md bg-zinc-800 px-4 py-3 text-sm text-zinc-200 whitespace-pre-wrap"
-                : "max-w-[85%] text-sm text-zinc-400 prose-sm prose-invert prose-headings:text-zinc-200 prose-strong:text-zinc-200 prose-code:text-zinc-800 prose-code:bg-zinc-800 prose-code:px-1 prose-code:rounded prose-table:text-xs prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700"
-            }
+            className={`flex items-start gap-2 ${deleteMode ? "cursor-pointer" : ""} ${isSelected ? "rounded-lg bg-red-950/40 ring-1 ring-red-500/30" : ""}`}
+            onClick={() => deleteMode && toggleMessage(i)}
           >
-            {m.content ? (
-              isUser ? (
-                m.content
-              ) : (
-                <ReactMarkdown>{m.content}</ReactMarkdown>
-              )
-            ) : (
-              <span className="inline-flex items-center gap-1 text-zinc-600">
-                <Loader2 size={12} className="animate-spin" /> 思考中...
-              </span>
+            {deleteMode && (
+              <div className={`mt-1 shrink-0 rounded p-0.5 ${isSelected ? "text-red-400" : "text-zinc-700"}`}>
+                <CheckSquare size={14} />
+              </div>
             )}
+            <div
+              className={
+                isUser
+                  ? `ml-auto max-w-[75%] rounded-xl rounded-br-md px-4 py-3 text-sm whitespace-pre-wrap ${isSelected ? "bg-red-950/60 text-red-200" : "bg-zinc-800 text-zinc-200"}`
+                  : `max-w-[85%] text-sm prose-sm prose-invert prose-headings:text-zinc-200 prose-strong:text-zinc-200 prose-code:text-zinc-800 prose-code:bg-zinc-800 prose-code:px-1 prose-code:rounded prose-table:text-xs prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 ${isSelected ? "text-red-300" : "text-zinc-400"}`
+              }
+            >
+              {m.content ? (
+                isUser ? (
+                  m.content
+                ) : (
+                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                )
+              ) : (
+                <span className="inline-flex items-center gap-1 text-zinc-600">
+                  <Loader2 size={12} className="animate-spin" /> 思考中...
+                </span>
+              )}
+            </div>
           </div>
         )})}
+        {/* resend button for last user message (when no assistant reply) */}
+        {!deleteMode && !streaming && messages.length > 0 && (() => {
+          const last = messages[messages.length - 1];
+          if (last.role === "user") {
+            return (
+              <div className="flex justify-end px-4">
+                <button
+                  onClick={() => resendMessage(last.content)}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-400"
+                  title="重新发送"
+                >
+                  <RefreshCw size={12} />
+                  重新发送
+                </button>
+              </div>
+            );
+          }
+          return null;
+        })()}
         <div ref={bottomRef} />
       </div>
 
+      {/* delete mode action bar */}
+      {deleteMode && (
+        <div className="flex items-center justify-between border-t border-red-500/20 bg-red-950/30 px-4 py-2">
+          <span className="text-xs text-red-300">
+            已选 {selectedIndices.size} 条消息
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setDeleteMode(false); setSelectedIndices(new Set()); }}
+              className="rounded px-3 py-1.5 text-xs text-zinc-400 transition hover:bg-zinc-800"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleDeleteMessages}
+              disabled={selectedIndices.size === 0}
+              className="rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-500 disabled:opacity-40"
+            >
+              删除
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* input */}
-      {dialogueId && (
+      {dialogueId && !deleteMode && (
         <div className="flex items-center gap-2 border-t border-white/5 p-3">
           <input
             ref={inputRef}

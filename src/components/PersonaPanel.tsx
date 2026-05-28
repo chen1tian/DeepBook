@@ -31,17 +31,21 @@ export default function PersonaPanel({ onBack }: Props) {
   const [isNew, setIsNew] = useState(false);
 
   useEffect(() => {
-    fetchPersonas();
-    setSelectedId(getActivePersonaId());
+    async function init() {
+      const res = await fetch("/api/personas");
+      const data = await res.json();
+      const list = data.personas || [];
+      setPersonas(list);
+      const activeId = getActivePersonaId();
+      if (activeId) {
+        const p = list.find((x: Persona) => x.id === activeId);
+        if (p) selectPersonaRef(p);
+      }
+    }
+    init();
   }, []);
 
-  async function fetchPersonas() {
-    const res = await fetch("/api/personas");
-    const data = await res.json();
-    setPersonas(data.personas || []);
-  }
-
-  function selectPersona(p: Persona) {
+  function selectPersonaRef(p: Persona) {
     setSelectedId(p.id);
     setName(p.name);
     setAvatar(p.avatar);
@@ -52,6 +56,16 @@ export default function PersonaPanel({ onBack }: Props) {
     setIsNew(false);
     setActivePersonaId(p.id);
     window.dispatchEvent(new CustomEvent("deepbook:persona-changed", { detail: p }));
+  }
+
+  async function fetchPersonas() {
+    const res = await fetch("/api/personas");
+    const data = await res.json();
+    setPersonas(data.personas || []);
+  }
+
+  function selectPersona(p: Persona) {
+    selectPersonaRef(p);
   }
 
   function startNew() {

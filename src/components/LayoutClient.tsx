@@ -15,9 +15,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       <Toolbar
         onOpenConnection={() => setConnectionOpen(true)}
         onOpenPresets={togglePresets}
-        onOpenPersonas={togglePersonas}
         showPresets={showPresets}
-        showPersonas={showPersonas}
       />
       <main className="min-h-[calc(100dvh-2.75rem)]">{children}</main>
       <FloatingChat />
