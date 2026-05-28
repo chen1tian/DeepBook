@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare } from "lucide-react";
+import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { getConnectionConfig } from "@/lib/storage";
 
 interface DialogueMessage {
@@ -21,14 +22,17 @@ interface DialogueMeta {
 interface Props {
   bookId: number;
   bookName: string;
+  bookGenre: string;
+  bookStyle: string;
   dialogueId: string | null;
   onBack: () => void;
   onNewDialogue: () => void;
   onSwitchDialogue: (dialogueId: string) => void;
+  onBookUpdated: () => void;
 }
 
 export default function DialogueView({
-  bookId, bookName, dialogueId, onBack, onNewDialogue, onSwitchDialogue,
+  bookId, bookName, bookGenre, bookStyle, dialogueId, onBack, onNewDialogue, onSwitchDialogue, onBookUpdated,
 }: Props) {
   const [messages, setMessages] = useState<DialogueMessage[]>([]);
   const [input, setInput] = useState("");
@@ -36,6 +40,11 @@ export default function DialogueView({
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editName, setEditName] = useState(bookName);
+  const [editGenre, setEditGenre] = useState(bookGenre);
+  const [editStyle, setEditStyle] = useState(bookStyle);
+  const [saving, setSaving] = useState(false);
   const [dialogues, setDialogues] = useState<DialogueMeta[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -186,6 +195,14 @@ export default function DialogueView({
                   <Plus size={13} />
                   开始新对话
                 </button>
+                <div className="my-1 border-t border-white/5" />
+                <button
+                  onClick={() => { setMenuOpen(false); setEditName(bookName); setEditGenre(bookGenre); setEditStyle(bookStyle); setSettingsOpen(true); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-700"
+                >
+                  <Settings size={13} />
+                  故事设定
+                </button>
               </div>
             </>
           )}
@@ -203,22 +220,30 @@ export default function DialogueView({
         {!loading && dialogueId && messages.length === 0 && (
           <p className="py-8 text-center text-xs text-zinc-600">对话为空</p>
         )}
-        {messages.map((m, i) => (
+        {messages.map((m, i) => {
+          const isUser = m.role === "user";
+          return (
           <div
             key={i}
-            className={`text-sm leading-relaxed whitespace-pre-wrap ${
-              m.role === "user"
-                ? "ml-auto max-w-[75%] rounded-xl rounded-br-md bg-zinc-800 px-4 py-3 text-zinc-200"
-                : "max-w-[85%] text-zinc-400"
-            }`}
+            className={
+              isUser
+                ? "ml-auto max-w-[75%] rounded-xl rounded-br-md bg-zinc-800 px-4 py-3 text-sm text-zinc-200 whitespace-pre-wrap"
+                : "max-w-[85%] text-sm text-zinc-400 prose-sm prose-invert prose-headings:text-zinc-200 prose-strong:text-zinc-200 prose-code:text-zinc-800 prose-code:bg-zinc-800 prose-code:px-1 prose-code:rounded prose-table:text-xs prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700"
+            }
           >
-            {m.content || (
+            {m.content ? (
+              isUser ? (
+                m.content
+              ) : (
+                <ReactMarkdown>{m.content}</ReactMarkdown>
+              )
+            ) : (
               <span className="inline-flex items-center gap-1 text-zinc-600">
                 <Loader2 size={12} className="animate-spin" /> 思考中...
               </span>
             )}
           </div>
-        ))}
+        )})}
         <div ref={bottomRef} />
       </div>
 
@@ -288,6 +313,83 @@ export default function DialogueView({
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* settings panel */}
+      {settingsOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSettingsOpen(false)}>
+          <div
+            className="flex h-full w-80 max-w-[90vw] flex-col bg-zinc-900 shadow-2xl ring-1 ring-white/10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-white/5 px-3">
+              <span className="text-xs font-medium text-zinc-400">故事设定</span>
+              <button onClick={() => setSettingsOpen(false)} className="rounded p-1 text-zinc-500 hover:text-zinc-300">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="flex-1 space-y-4 overflow-y-auto p-4">
+              {/* name */}
+              <div>
+                <label className="mb-1 block text-[11px] text-zinc-500">书名</label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                />
+              </div>
+              {/* genre */}
+              <div>
+                <label className="mb-1 block text-[11px] text-zinc-500">背景</label>
+                <input
+                  type="text"
+                  value={editGenre}
+                  onChange={(e) => setEditGenre(e.target.value)}
+                  placeholder="仙侠、科幻、都市..."
+                  className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                />
+              </div>
+              {/* style */}
+              <div>
+                <label className="mb-1 block text-[11px] text-zinc-500">风格</label>
+                <input
+                  type="text"
+                  value={editStyle}
+                  onChange={(e) => setEditStyle(e.target.value)}
+                  placeholder="网络小说、轻小说..."
+                  className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                />
+              </div>
+            </div>
+            <div className="border-t border-white/5 p-3">
+              <button
+                onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await fetch("/api/books", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        id: bookId,
+                        name: editName,
+                        genre: editGenre,
+                        style: editStyle,
+                      }),
+                    });
+                    onBookUpdated();
+                    setSettingsOpen(false);
+                  } catch { /* */ }
+                  setSaving(false);
+                }}
+                disabled={saving || !editName.trim()}
+                className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {saving ? "保存中..." : "保存"}
+              </button>
             </div>
           </div>
         </div>

@@ -27,8 +27,11 @@ export default function ConnectionDialog({ open, onClose }: Props) {
   const [showProviderMenu, setShowProviderMenu] = useState(false);
   const providerBtnRef = useRef<HTMLButtonElement>(null);
 
+  const prevOpen = useRef(false);
+
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpen.current) {
+      // dialog just opened — load saved config
       const existing = getConnectionConfig();
       if (existing) {
         setProvider(existing.provider);
@@ -39,12 +42,17 @@ export default function ConnectionDialog({ open, onClose }: Props) {
         setBaseUrl(getDefaultBaseUrl(provider));
       }
     }
-  }, [open, provider]);
+    prevOpen.current = open;
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // when user manually switches provider, update baseUrl only if no saved config
   useEffect(() => {
-    setBaseUrl(getDefaultBaseUrl(provider));
-    setError("");
-  }, [provider]);
+    const existing = getConnectionConfig();
+    if (!existing || existing.provider !== provider) {
+      setBaseUrl(getDefaultBaseUrl(provider));
+      setError("");
+    }
+  }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // close provider menu on outside click
   useEffect(() => {
@@ -154,7 +162,7 @@ export default function ConnectionDialog({ open, onClose }: Props) {
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                   placeholder="https://api.openai.com/v1"
-                  className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 />
               </div>
             )}
@@ -172,7 +180,7 @@ export default function ConnectionDialog({ open, onClose }: Props) {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="sk-..."
-                className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ring-1 ring-white/10 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 onKeyDown={(e) => e.key === "Enter" && handleFetchModels()}
               />
             </div>
@@ -180,7 +188,7 @@ export default function ConnectionDialog({ open, onClose }: Props) {
             <button
               onClick={handleFetchModels}
               disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
             >
               {loading ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -205,7 +213,7 @@ export default function ConnectionDialog({ open, onClose }: Props) {
                   }}
                   className={`w-full truncate rounded px-3 py-2 text-left text-sm transition ${
                     selectedModel === m
-                      ? "bg-emerald-600/20 text-emerald-400"
+                      ? "bg-blue-600/20 text-blue-400"
                       : "text-zinc-300 hover:bg-zinc-700"
                   }`}
                 >
@@ -224,7 +232,7 @@ export default function ConnectionDialog({ open, onClose }: Props) {
               <button
                 onClick={handleSave}
                 disabled={!selectedModel}
-                className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
               >
                 <Check size={14} />
                 确认

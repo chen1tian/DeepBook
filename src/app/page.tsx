@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus } from "lucide-react";
 import DialogueView from "@/components/DialogueView";
+import PresetPanel from "@/components/PresetPanel";
+import PersonaPanel from "@/components/PersonaPanel";
+import { useView } from "@/lib/view-context";
 
 interface Book {
   id: number;
@@ -18,6 +21,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [activeDialogueId, setActiveDialogueId] = useState<string | null>(null);
+  const { showPresets, togglePresets, showPersonas, togglePersonas } = useView();
 
   const fetchBooks = useCallback(async () => {
     try {
@@ -79,7 +83,7 @@ export default function Home() {
     } else {
       window.dispatchEvent(
         new CustomEvent("deepbook:open-dialogue", {
-          detail: { bookId: book.id, bookName: book.name },
+          detail: { bookId: book.id, bookName: book.name, bookGenre: book.genre, bookStyle: book.style },
         })
       );
     }
@@ -112,16 +116,27 @@ export default function Home() {
 
   if (loading) return null;
 
+  if (showPresets) {
+    return <PresetPanel onBack={() => togglePresets()} />;
+  }
+
+  if (showPersonas) {
+    return <PersonaPanel onBack={() => togglePersonas()} />;
+  }
+
   if (activeBook) {
     return (
       <div className="flex h-[calc(100dvh-2.75rem)] flex-col">
         <DialogueView
           bookId={activeBook.id}
           bookName={activeBook.name}
+          bookGenre={activeBook.genre}
+          bookStyle={activeBook.style}
           dialogueId={activeDialogueId}
           onBack={handleBack}
           onNewDialogue={handleNewDialogue}
           onSwitchDialogue={handleSwitchDialogue}
+          onBookUpdated={() => { fetchBooks(); }}
         />
       </div>
     );
@@ -132,7 +147,7 @@ export default function Home() {
       {books.length === 0 ? (
         <div className="flex min-h-[calc(100dvh-2.75rem-3rem)] items-center justify-center">
           <button onClick={handleAdd} className="group flex flex-col items-center gap-3">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-dashed border-zinc-700 text-zinc-600 transition group-hover:border-emerald-500 group-hover:text-emerald-500">
+            <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-dashed border-zinc-700 text-zinc-600 transition group-hover:border-blue-500 group-hover:text-blue-400">
               <Plus size={28} strokeWidth={1.5} />
             </div>
             <span className="text-xs text-zinc-600 transition group-hover:text-zinc-400">创建故事</span>
@@ -142,7 +157,7 @@ export default function Home() {
         <div>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xs font-medium text-zinc-500">我的故事 ({books.length})</h2>
-            <button onClick={handleAdd} className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-zinc-700 text-zinc-600 transition hover:border-emerald-500 hover:text-emerald-500" title="创建新故事">
+            <button onClick={handleAdd} className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-zinc-700 text-zinc-600 transition hover:border-blue-500 hover:text-blue-400" title="创建新故事">
               <Plus size={18} strokeWidth={1.5} />
             </button>
           </div>

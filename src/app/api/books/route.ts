@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getBooks, createBook } from "@/lib/db";
+import { getBooks, createBook, updateBook } from "@/lib/db";
 
 export async function GET() {
   try {
@@ -25,6 +25,21 @@ export async function POST(req: Request) {
 
     const book = await createBook({ name, genre, style, system_prompt: system_prompt || "" });
     return NextResponse.json({ book }, { status: 201 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const body = await req.json();
+    const { id, ...patch } = body;
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    const book = await updateBook(id, patch);
+    if (!book) return NextResponse.json({ error: "Book not found" }, { status: 404 });
+    return NextResponse.json({ book });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });

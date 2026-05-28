@@ -65,3 +65,18 @@ export function saveChatPosition(pos: ChatPosition): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(POSITION_KEY, JSON.stringify(pos));
 }
+
+// --- active persona ---
+
+const PERSONA_KEY = "deepbook_active_persona";
+
+export function getActivePersonaId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(PERSONA_KEY);
+}
+
+export function setActivePersonaId(id: string | null): void {
+  if (typeof window === "undefined") return;
+  if (id) localStorage.setItem(PERSONA_KEY, id);
+  else localStorage.removeItem(PERSONA_KEY);
+}

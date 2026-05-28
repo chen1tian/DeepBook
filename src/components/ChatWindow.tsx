@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Send, Loader2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { getConnectionConfig } from "@/lib/storage";
 
 interface Message {
@@ -13,18 +14,65 @@ interface Props {
   task?: string | null;
   bookId?: number | null;
   bookName?: string;
+  bookContext?: { genre: string; style: string } | null;
   activeBook?: { id: number; name: string; genre: string; style: string } | null;
+  persona?: { name: string; avatar: string; tone: string; addressUser: string; style: string; catchphrase: string } | null;
   onBookCreated?: () => void;
 }
 
-export default function ChatWindow({ task, bookId, bookName, activeBook, onBookCreated }: Props) {
+export default function ChatWindow({ task, bookId, bookName, bookContext, activeBook, persona, onBookCreated }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [initialized, setInitialized] = useState(false);
+  const [chatId, setChatId] = useState<string | null>(null);
+  const chatIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Load chat history on mount — each task has its own chatId
+  useEffect(() => {
+    const storageKey = `deepbook_agent_chat_${task || "default"}`;
+    const stored = typeof window !== "undefined" ? localStorage.getItem(storageKey) : null;
+    if (stored) {
+      setChatId(stored);
+      chatIdRef.current = stored;
+      fetch(`/api/agent-chat?chatId=${stored}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.chat?.messages) {
+            setMessages(data.chat.messages.filter((m: Message) => m.role !== "system"));
+          }
+        })
+        .catch(() => {});
+    } else {
+      // Fresh start for this task
+      setChatId(null);
+      chatIdRef.current = null;
+      setMessages([]);
+    }
+  }, [task]);
+
+  // Save messages after each exchange
+  async function persistMessages(msgs: Message[]) {
+    const id = chatIdRef.current;
+    const allMessages = msgs.map((m) => ({ role: m.role, content: m.content }));
+    try {
+      const res = await fetch("/api/agent-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId: id, messages: allMessages }),
+      });
+      const data = await res.json();
+      if (data.chat?.id && !id) {
+        setChatId(data.chat.id);
+        chatIdRef.current = data.chat.id;
+        const storageKey = `deepbook_agent_chat_${task || "default"}`;
+        localStorage.setItem(storageKey, data.chat.id);
+      }
+    } catch {}
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -43,6 +91,26 @@ export default function ChatWindow({ task, bookId, bookName, activeBook, onBookC
     if (task === "new-dialogue" && !initialized) {
       setInitialized(true);
       sendMessage(`我想在《${bookName || "故事"}》中开始一个新对话`, task);
+    }
+    if (task === "edit-preset" && !initialized) {
+      setInitialized(true);
+      const preset = (window as unknown as Record<string, unknown>).__editingPreset as Record<string, unknown> | undefined;
+      if (preset) {
+        const info = `当前预设信息：\n名称：${preset.name || "（新建）"}\n模式：${preset.mode}\n人称：${preset.pov}\n角色定义：${preset.role}\n写作规则：${preset.rules}`;
+        sendMessage(`我想修改这个预设。${info}`, task);
+      } else {
+        sendMessage("我想创建一个新预设", task);
+      }
+    }
+    if (task === "edit-persona" && !initialized) {
+      setInitialized(true);
+      const p = (window as unknown as Record<string, unknown>).__editingPersona as Record<string, unknown> | undefined;
+      if (p) {
+        const info = `当前人格信息：\n名称：${p.name || "（新建）"}\n头像：${p.avatar}\n语气：${p.tone}\n称呼用户：${p.addressUser}\n风格：${p.style}\n口头禅：${p.catchphrase}`;
+        sendMessage(`我想修改这个人格。${info}`, task);
+      } else {
+        sendMessage("我想创建一个新的人格", task);
+      }
     }
   }, [task, initialized]);
 
@@ -80,8 +148,14 @@ export default function ChatWindow({ task, bookId, bookName, activeBook, onBookC
       if (bookId) {
         body.bookId = bookId;
       }
+      if (bookContext && task === "open-dialogue") {
+        body.contextBook = { name: bookName, ...bookContext };
+      }
       if (activeBook && !task) {
         body.contextBook = activeBook;
+      }
+      if (persona) {
+        body.contextPersona = persona;
       }
 
       const res = await fetch("/api/chat", {
@@ -212,6 +286,20 @@ export default function ChatWindow({ task, bookId, bookName, activeBook, onBookC
                 if (parsed.tool_result.name === "close_dialogue" && parsed.tool_result.success) {
                   window.dispatchEvent(new CustomEvent("deepbook:dialogue-closed"));
                 }
+
+                if (
+                  (parsed.tool_result.name === "update_preset" || parsed.tool_result.name === "create_preset") &&
+                  parsed.tool_result.success
+                ) {
+                  window.dispatchEvent(new CustomEvent("deepbook:presets-updated"));
+                }
+
+                if (
+                  (parsed.tool_result.name === "create_persona" || parsed.tool_result.name === "update_persona") &&
+                  parsed.tool_result.success
+                ) {
+                  window.dispatchEvent(new CustomEvent("deepbook:persona-changed", { detail: parsed.tool_result.persona }));
+                }
               }
             } catch {
               // partial chunk
@@ -227,10 +315,16 @@ export default function ChatWindow({ task, bookId, bookName, activeBook, onBookC
           ...copy[copy.length - 1],
           content: `错误: ${msg}`,
         };
+        persistMessages(copy);
         return copy;
       });
     } finally {
       setStreaming(false);
+      // Persist after stream completes
+      setMessages((prev) => {
+        persistMessages(prev);
+        return prev;
+      });
     }
   }
 
@@ -245,29 +339,46 @@ export default function ChatWindow({ task, bookId, bookName, activeBook, onBookC
               : "有什么可以帮你的？开始对话吧。"}
           </p>
         )}
-        {messages.map((m, i) => (
+        {messages.length > 0 && (
+          <div className="flex items-center gap-2 py-2">
+            <div className="h-px flex-1 bg-white/5" />
+            <span className="text-[10px] text-zinc-600 shrink-0">
+              {task === "create-story" ? "创建故事" : task === "open-dialogue" ? "开场白创建" : task === "new-dialogue" ? "新建对话" : "历史对话"}
+            </span>
+            <div className="h-px flex-1 bg-white/5" />
+          </div>
+        )}
+        {messages.map((m, i) => {
+          const isUser = m.role === "user";
+          return (
           <div
             key={i}
-            className={`text-sm leading-relaxed whitespace-pre-wrap ${
-              m.role === "user"
-                ? "ml-auto max-w-[80%] rounded-xl rounded-br-md bg-zinc-800 px-3 py-2 text-zinc-200"
-                : "max-w-[85%] text-zinc-400"
-            }`}
+            className={
+              isUser
+                ? "ml-auto max-w-[80%] rounded-xl rounded-br-md bg-zinc-800 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap"
+                : "max-w-[85%] text-sm text-zinc-400 prose-sm prose-invert prose-headings:text-zinc-200 prose-strong:text-zinc-200 prose-code:text-zinc-300 prose-code:bg-zinc-800 prose-code:px-1 prose-code:rounded prose-table:text-xs prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700"
+            }
           >
-            {m.content || (
+            {m.content ? (
+              isUser ? (
+                m.content
+              ) : (
+                <ReactMarkdown>{m.content}</ReactMarkdown>
+              )
+            ) : (
               <span className="inline-flex items-center gap-1 text-zinc-600">
                 <Loader2 size={12} className="animate-spin" />
                 思考中...
               </span>
             )}
           </div>
-        ))}
+        )})}
         {error && <p className="text-center text-xs text-red-400">{error}</p>}
         <div ref={bottomRef} />
       </div>
 
       {/* input */}
-      <div className="flex items-center gap-2 border-t border-white/5 p-2">
+      <div className="flex items-center gap-2 border-t border-blue-400/20 p-2">
         <input
           ref={inputRef}
           type="text"
@@ -275,13 +386,13 @@ export default function ChatWindow({ task, bookId, bookName, activeBook, onBookC
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && sendMessage()}
           placeholder="输入消息..."
-          className="flex-1 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+          className="flex-1 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-400/60"
           disabled={streaming}
         />
         <button
           onClick={() => sendMessage()}
           disabled={streaming || !input.trim()}
-          className="rounded-lg p-2 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-30"
+          className="rounded-lg p-2 text-zinc-400 transition hover:bg-blue-500/15 hover:text-blue-400 disabled:opacity-30"
         >
           <Send size={16} />
         </button>

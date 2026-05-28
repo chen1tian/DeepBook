@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { MessageCircle, X, GripHorizontal } from "lucide-react";
 import ChatWindow from "./ChatWindow";
-import { getChatPosition, saveChatPosition, type ChatPosition } from "@/lib/storage";
+import { getChatPosition, saveChatPosition, getActivePersonaId, type ChatPosition } from "@/lib/storage";
 
 const BTN_SIZE = 48;
 const PANEL_W = 380;
@@ -28,7 +28,48 @@ export default function FloatingChat() {
 
   const [bookId, setBookId] = useState<number | null>(null);
   const [bookName, setBookName] = useState<string>("");
+  const [bookContext, setBookContext] = useState<{ genre: string; style: string } | null>(null);
   const [activeBook, setActiveBook] = useState<{ id: number; name: string; genre: string; style: string } | null>(null);
+  const [persona, setPersona] = useState<{ name: string; avatar: string; tone: string; addressUser: string; style: string; catchphrase: string } | null>(null);
+
+  // load active persona
+  useEffect(() => {
+    async function load() {
+      const id = getActivePersonaId();
+      if (id) {
+        try {
+          const res = await fetch(`/api/personas`);
+          const data = await res.json();
+          const p = (data.personas || []).find((x: { id: string }) => x.id === id);
+          if (p) setPersona(p);
+        } catch {}
+      }
+    }
+    load();
+    function onChanged(e: Event) {
+      const p = (e as CustomEvent).detail;
+      setPersona(p);
+    }
+    window.addEventListener("deepbook:persona-changed", onChanged);
+    return () => window.removeEventListener("deepbook:persona-changed", onChanged);
+  }, []);
+
+  // re-clamp position on window resize so button doesn't go off-screen
+  useEffect(() => {
+    function onResize() {
+      setPos((prev) => {
+        if (prev.x < 0) return prev; // using default, no need to clamp
+        const clamped = clamp(prev.x, prev.y, BTN_SIZE, BTN_SIZE);
+        if (clamped.x !== prev.x || clamped.y !== prev.y) {
+          saveChatPosition(clamped);
+          return clamped;
+        }
+        return prev;
+      });
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // listen for task events from the page
   useEffect(() => {
@@ -36,6 +77,23 @@ export default function FloatingChat() {
       setBookId(null);
       setBookName("");
       setTask("create-story");
+      setOpen(true);
+    }
+    function handleEditPersona(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      setBookId(null);
+      setBookName(detail.name || "");
+      (window as unknown as Record<string, unknown>).__editingPersona = detail;
+      setTask("edit-persona");
+      setOpen(true);
+    }
+    function handleEditPreset(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      // Store preset context for the AI
+      setBookId(null);
+      setBookName(detail.name || "");
+      (window as unknown as Record<string, unknown>).__editingPreset = detail;
+      setTask("edit-preset");
       setOpen(true);
     }
     function handleNewDialogue(e: Event) {
@@ -49,16 +107,21 @@ export default function FloatingChat() {
       const detail = (e as CustomEvent).detail;
       setBookId(detail.bookId);
       setBookName(detail.bookName || "");
+      setBookContext(detail.bookGenre ? { genre: detail.bookGenre, style: detail.bookStyle || "" } : null);
       setTask("open-dialogue");
       setOpen(true);
     }
     window.addEventListener("deepbook:new-story", handleNewStory);
     window.addEventListener("deepbook:open-dialogue", handleOpenDialogue);
     window.addEventListener("deepbook:new-dialogue", handleNewDialogue);
+    window.addEventListener("deepbook:edit-preset", handleEditPreset);
+    window.addEventListener("deepbook:edit-persona", handleEditPersona);
     return () => {
       window.removeEventListener("deepbook:new-story", handleNewStory);
       window.removeEventListener("deepbook:open-dialogue", handleOpenDialogue);
       window.removeEventListener("deepbook:new-dialogue", handleNewDialogue);
+      window.removeEventListener("deepbook:edit-preset", handleEditPreset);
+      window.removeEventListener("deepbook:edit-persona", handleEditPersona);
     };
   }, []);
 
@@ -140,7 +203,7 @@ export default function FloatingChat() {
     return { position: "fixed" as const, left: clamped.x, top: clamped.y };
   }, [usingDefault, pos.x, pos.y, clamp]);
 
-  const isTask = task === "create-story" || task === "open-dialogue" || task === "new-dialogue";
+  const isTask = task === "create-story" || task === "open-dialogue" || task === "new-dialogue" || task === "edit-preset" || task === "edit-persona";
 
   return (
     <>
@@ -153,9 +216,13 @@ export default function FloatingChat() {
           onClick={() => { if (!dragState.current.moved) handleOpen(); }}
           style={btnStyle}
           className="z-50 flex h-12 w-12 touch-none select-none items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg transition hover:bg-emerald-500 hover:shadow-xl active:scale-95"
-          title="AI 助手（可拖动）"
+          title={persona?.name || "AI 助手（可拖动）"}
         >
-          <MessageCircle size={20} />
+          {persona ? (
+            <span className="text-xl">{persona.avatar}</span>
+          ) : (
+            <MessageCircle size={20} />
+          )}
         </button>
       )}
 
@@ -171,19 +238,19 @@ export default function FloatingChat() {
             height: isTask ? "90dvh" : `${PANEL_H}px`,
             maxHeight: isTask ? "90dvh" : `calc(100dvh - ${PADDING * 2}px)`,
           }}
-          className="z-50 flex flex-col overflow-hidden rounded-xl bg-zinc-950 shadow-2xl ring-1 ring-white/10"
+          className="z-50 flex flex-col overflow-hidden rounded-xl bg-zinc-950 shadow-2xl ring-1 ring-blue-400/40 shadow-blue-400/10"
         >
           {/* header */}
           <div
             onPointerDown={(e) => onPointerDown(e, "panel")}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
-            className="flex h-10 cursor-grab touch-none select-none items-center justify-between border-b border-white/5 px-2 active:cursor-grabbing"
+            className="flex h-10 cursor-grab touch-none select-none items-center justify-between border-b border-blue-400/20 px-2 active:cursor-grabbing"
           >
-            <div className="flex items-center gap-1 text-zinc-500">
+            <div className="flex items-center gap-1 text-blue-400/60">
               <GripHorizontal size={12} />
-              <span className="text-xs font-medium text-zinc-400">
-                {task === "create-story" ? "创建故事" : task === "open-dialogue" ? "开场白创建" : task === "new-dialogue" ? "新建对话" : "AI 助手"}
+              <span className="text-xs font-medium text-blue-300/80">
+                {task === "create-story" ? "创建故事" : task === "open-dialogue" ? "开场白创建" : task === "new-dialogue" ? "新建对话" : task === "edit-preset" ? "编辑预设" : task === "edit-persona" ? "编辑人格" : persona?.name || "AI 助手"}
               </span>
             </div>
             <button
@@ -202,7 +269,9 @@ export default function FloatingChat() {
               task={task}
               bookId={bookId}
               bookName={bookName}
+              bookContext={bookContext}
               activeBook={activeBook}
+              persona={persona}
               onBookCreated={() => {
                 const refresh = (window as unknown as Record<string, unknown>).__refreshBooks as (() => void) | undefined;
                 refresh?.();
