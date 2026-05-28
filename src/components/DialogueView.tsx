@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw } from "lucide-react";
+import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { getConnectionConfig } from "@/lib/storage";
 
@@ -98,6 +98,79 @@ export default function DialogueView({
     setMessages((prev) => prev.slice(0, -1));
     // Resend
     await sendWithText(content);
+  }
+
+  async function regenerateLast() {
+    if (!dialogueId || streaming) return;
+    const last = messages[messages.length - 1];
+    if (last.role !== "assistant") return;
+
+    // Remove last assistant message from store
+    const lastIndex = messages.length - 1;
+    await fetch("/api/dialogue", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dialogueId, indices: [lastIndex] }),
+    });
+
+    // Remove from local state
+    setMessages((prev) => prev.slice(0, -1));
+    setStreaming(true);
+
+    const config = getConnectionConfig();
+    if (!config) return;
+
+    const assistantMsg: DialogueMessage = { role: "assistant", content: "" };
+    setMessages((prev) => [...prev, assistantMsg]);
+
+    try {
+      const res = await fetch("/api/dialogue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dialogueId,
+          regenerate: true,
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          modelId: config.modelId,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const d = line.slice(6);
+            if (d === "[DONE]") continue;
+            try {
+              const p = JSON.parse(d);
+              if (p.error) {
+                setMessages((prev) => { const c = [...prev]; c[c.length - 1] = { role: "assistant", content: `❌ ${p.error}` }; return c; });
+              }
+              if (p.text) {
+                setMessages((prev) => { const c = [...prev]; c[c.length - 1] = { ...c[c.length - 1], content: c[c.length - 1].content + p.text }; return c; });
+              }
+            } catch { /* */ }
+          }
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "失败";
+      setMessages((prev) => { const c = [...prev]; c[c.length - 1] = { role: "assistant", content: `❌ ${msg}` }; return c; });
+    } finally {
+      setStreaming(false);
+      fetchList();
+    }
   }
 
   const send = useCallback(async () => {
@@ -335,6 +408,20 @@ export default function DialogueView({
                 >
                   <RefreshCw size={12} />
                   重新发送
+                </button>
+              </div>
+            );
+          }
+          if (last.role === "assistant") {
+            return (
+              <div className="px-4">
+                <button
+                  onClick={regenerateLast}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-400"
+                  title="重新生成"
+                >
+                  <RotateCw size={12} />
+                  重新生成
                 </button>
               </div>
             );

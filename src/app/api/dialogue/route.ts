@@ -34,7 +34,7 @@ export async function DELETE(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { dialogueId, message, baseUrl, apiKey, modelId } = await req.json();
+    const { dialogueId, message, baseUrl, apiKey, modelId, regenerate } = await req.json();
 
     if (!apiKey) return new Response("API Key is required", { status: 400 });
     if (!modelId) return new Response("Model ID is required", { status: 400 });
@@ -64,8 +64,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Append new user message
-    if (message) {
+    // Append new user message (skip if regenerating)
+    if (message && !regenerate) {
       appendMessage(dialogueId, { role: "user", content: message });
       llmMessages.push({ role: "user", content: message });
     }
