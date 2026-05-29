@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { getBook } from "@/lib/db";
 import { getDialogueMessages, getDialogue, appendMessage, deleteMessages, updateMessage } from "@/lib/dialogue-store";
+import { getPlotState } from "@/lib/plot-state";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -65,12 +66,22 @@ export async function POST(req: NextRequest) {
     const llmMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     // Add system prompt if present in the record config
+    let systemContent = "";
     if (record.config?.dialogue_system_prompt) {
-      llmMessages.push({ role: "system", content: record.config.dialogue_system_prompt });
+      systemContent = record.config.dialogue_system_prompt;
     } else {
-      // Fallback: use the first system message from stored messages
       const sysMsg = record.messages.find((m) => m.role === "system");
-      if (sysMsg) llmMessages.push({ role: "system", content: sysMsg.content });
+      if (sysMsg) systemContent = sysMsg.content;
+    }
+
+    // inject active plot node hints
+    const plotHints = buildPlotHints(dialogueId);
+    if (plotHints) {
+      systemContent += "\n\n" + plotHints;
+    }
+
+    if (systemContent) {
+      llmMessages.push({ role: "system", content: systemContent });
     }
 
     // Add existing user/assistant history
@@ -134,5 +145,32 @@ export async function POST(req: NextRequest) {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
+  }
+}
+
+function buildPlotHints(dialogueId: string): string | null {
+  try {
+    const state = getPlotState(dialogueId);
+    const activeLines = state.plotLines.filter((l) => l.status === "active");
+    if (activeLines.length === 0) return null;
+
+    const hints: string[] = [];
+    for (const line of activeLines) {
+      const activeNode = line.nodes.find((n) => n.status === "active");
+      if (!activeNode) continue;
+      const nextNode = line.nodes.find(
+        (n) => n.status === "pending" && n.order > activeNode.order
+      );
+      if (nextNode) {
+        hints.push(`- 【${line.title}】当前：${activeNode.content} → 下一步可发展：${nextNode.content}`);
+      } else {
+        hints.push(`- 【${line.title}】当前：${activeNode.content}`);
+      }
+    }
+
+    if (hints.length === 0) return null;
+    return `[剧情提示] 以下是当前故事的可能发展方向，请自然地融入叙事中，不要生硬地照搬：\n${hints.join("\n")}`;
+  } catch {
+    return null;
   }
 }

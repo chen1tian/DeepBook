@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square, MoreHorizontal } from "lucide-react";
+import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square, MoreHorizontal, GitBranch } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { getConnectionConfig, getConnections, getAnalysisSettings } from "@/lib/storage";
+import { getConnectionConfig, getConnections, getAnalysisSettings, getPlotSettings } from "@/lib/storage";
 import type { StoryState, CharacterInfo } from "@/lib/story-state-types";
 import StoryStateBar, { type PanelType } from "./StoryStateBar";
 import CharacterPanel from "./CharacterPanel";
@@ -11,6 +11,8 @@ import LocationPanel from "./LocationPanel";
 import TimePanel from "./TimePanel";
 import ProtagonistPanel from "./ProtagonistPanel";
 import AnalysisSettingsPanel from "./AnalysisSettingsPanel";
+import PlotPanel from "./PlotPanel";
+import PlotSettingsPanel from "./PlotSettingsPanel";
 
 interface DialogueMessage {
   role: "system" | "user" | "assistant";
@@ -75,7 +77,10 @@ export default function DialogueView({
   });
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const [plotSettingsOpen, setPlotSettingsOpen] = useState(false);
   const [inputMenuOpen, setInputMenuOpen] = useState(false);
+  const [hasPlotData, setHasPlotData] = useState(false);
+  const plotStateRef = useRef<{ plotLines: { id: string; title: string; status: string }[] }>({ plotLines: [] });
   const inputMenuRef = useRef<HTMLDivElement>(null);
 
   // Load dialogue list
@@ -244,6 +249,8 @@ export default function DialogueView({
       setStreaming(false);
       fetchList();
       triggerAnalysis();
+      triggerPlotAnalysis();
+      triggerPlotGeneration();
     }
   }
 
@@ -345,6 +352,76 @@ export default function DialogueView({
       }
     } catch { /* */ }
     analyzingRef.current = false;
+  }
+
+  async function triggerPlotAnalysis() {
+    if (!dialogueId) return;
+    const settings = getPlotSettings();
+    let config = getConnectionConfig();
+    if (settings.analysisConnectionId) {
+      const conns = getConnections();
+      const picked = conns.find((c) => c.id === settings.analysisConnectionId);
+      if (picked) config = picked;
+    }
+    if (!config) return;
+    // only analyze if there are plot lines
+    const ps = plotStateRef.current;
+    if (!ps.plotLines.some((l) => l.status === "active")) return;
+
+    try {
+      const res = await fetch("/api/analyze-plot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dialogueId,
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          modelId: config.modelId,
+          messageCount: settings.messageCount,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.state?.plotLines) {
+          plotStateRef.current = data.state;
+          setHasPlotData(data.state.plotLines.length > 0);
+        }
+      }
+    } catch { /* */ }
+  }
+
+  async function triggerPlotGeneration() {
+    if (!dialogueId) return;
+    const settings = getPlotSettings();
+    if (!settings.autoGenerate) return;
+    let config = getConnectionConfig();
+    if (settings.generationConnectionId) {
+      const conns = getConnections();
+      const picked = conns.find((c) => c.id === settings.generationConnectionId);
+      if (picked) config = picked;
+    }
+    if (!config) return;
+
+    try {
+      const res = await fetch("/api/generate-plot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dialogueId,
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          modelId: config.modelId,
+          messageCount: settings.messageCount,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.state?.plotLines) {
+          plotStateRef.current = data.state;
+          setHasPlotData(data.state.plotLines.length > 0);
+        }
+      }
+    } catch { /* */ }
   }
 
   async function handleAvatarUpload(characterName: string, file: File): Promise<string | null> {
@@ -466,6 +543,8 @@ export default function DialogueView({
       setStreaming(false);
       fetchList();
       triggerAnalysis();
+      triggerPlotAnalysis();
+      triggerPlotGeneration();
     }
   }
 
@@ -522,6 +601,7 @@ export default function DialogueView({
             activePanel={activePanel}
             onOpenPanel={togglePanel}
             hasData={storyState.characters.length > 0 || !!storyState.protagonist || !!storyState.currentLocation}
+            hasPlotData={hasPlotData}
           />
         )}
 
@@ -761,6 +841,20 @@ export default function DialogueView({
                   <Settings size={13} />
                   分析设置
                 </button>
+                <button
+                  onClick={() => { setInputMenuOpen(false); setPlotSettingsOpen(true); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-700"
+                >
+                  <Settings size={13} />
+                  剧情设置
+                </button>
+                <button
+                  onClick={() => { setInputMenuOpen(false); setActivePanel("plot"); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-700"
+                >
+                  <GitBranch size={13} />
+                  剧情
+                </button>
               </div>
             )}
           </div>
@@ -946,6 +1040,15 @@ export default function DialogueView({
       <AnalysisSettingsPanel
         open={settingsPanelOpen}
         onClose={() => setSettingsPanelOpen(false)}
+      />
+      <PlotPanel
+        open={activePanel === "plot"}
+        onClose={() => setActivePanel(null)}
+        dialogueId={dialogueId}
+      />
+      <PlotSettingsPanel
+        open={plotSettingsOpen}
+        onClose={() => setPlotSettingsOpen(false)}
       />
     </div>
   );

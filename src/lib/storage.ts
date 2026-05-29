@@ -147,6 +147,40 @@ export function saveAnalysisSettings(settings: AnalysisSettings): void {
   localStorage.setItem(ANALYSIS_KEY, JSON.stringify(settings));
 }
 
+// --- plot settings ---
+
+const PLOT_KEY = "deepbook_plot_settings";
+
+export interface PlotSettings {
+  messageCount: number;
+  generationConnectionId: string;
+  analysisConnectionId: string;
+  spoilerPrevention: boolean;
+  autoGenerate: boolean;
+}
+
+const DEFAULT_PLOT_SETTINGS: PlotSettings = {
+  messageCount: 20,
+  generationConnectionId: "",
+  analysisConnectionId: "",
+  spoilerPrevention: true,
+  autoGenerate: true,
+};
+
+export function getPlotSettings(): PlotSettings {
+  if (typeof window === "undefined") return DEFAULT_PLOT_SETTINGS;
+  try {
+    const raw = localStorage.getItem(PLOT_KEY);
+    if (raw) return JSON.parse(raw) as PlotSettings;
+  } catch { /* */ }
+  return DEFAULT_PLOT_SETTINGS;
+}
+
+export function savePlotSettings(settings: PlotSettings): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(PLOT_KEY, JSON.stringify(settings));
+}
+
 export function getDefaultBaseUrl(provider: ProviderType): string {
   if (provider === "deepseek") return DEEPSEEK_BASE;
   return "https://api.openai.com/v1";
