@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw } from "lucide-react";
+import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { getConnectionConfig } from "@/lib/storage";
 
@@ -48,8 +48,12 @@ export default function DialogueView({
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dialogues, setDialogues] = useState<DialogueMeta[]>([]);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const editRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Load dialogue list
   const fetchList = useCallback(async () => {
@@ -117,6 +121,9 @@ export default function DialogueView({
     setMessages((prev) => prev.slice(0, -1));
     setStreaming(true);
 
+    const abortController = new AbortController();
+    abortRef.current = abortController;
+
     const config = getConnectionConfig();
     if (!config) return;
 
@@ -134,6 +141,7 @@ export default function DialogueView({
           apiKey: config.apiKey,
           modelId: config.modelId,
         }),
+        signal: abortController.signal,
       });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -165,12 +173,71 @@ export default function DialogueView({
         }
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "失败";
-      setMessages((prev) => { const c = [...prev]; c[c.length - 1] = { role: "assistant", content: `❌ ${msg}` }; return c; });
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // User cancelled — keep partial content
+      } else {
+        const msg = err instanceof Error ? err.message : "失败";
+        setMessages((prev) => { const c = [...prev]; c[c.length - 1] = { role: "assistant", content: `❌ ${msg}` }; return c; });
+      }
     } finally {
+      abortRef.current = null;
       setStreaming(false);
       fetchList();
     }
+  }
+
+  function handleStartEdit(index: number) {
+    setEditingIndex(index);
+    setEditContent(messages[index].content);
+    setTimeout(() => {
+      if (editRef.current) {
+        editRef.current.focus();
+        editRef.current.style.height = "auto";
+        editRef.current.style.height = editRef.current.scrollHeight + "px";
+      }
+    }, 0);
+  }
+
+  function handleCancelEdit() {
+    setEditingIndex(null);
+    setEditContent("");
+  }
+
+  async function handleConfirmEdit() {
+    if (editingIndex === null || !dialogueId) return;
+    const content = editContent.trim();
+    if (!content) return;
+
+    const last = messages[editingIndex];
+    // If editing the last user message (no assistant reply yet),
+    // delete and resend with new content — same as resendMessage
+    if (last.role === "user" && editingIndex === messages.length - 1) {
+      setEditingIndex(null);
+      setEditContent("");
+      await fetch("/api/dialogue", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dialogueId, indices: [editingIndex] }),
+      });
+      setMessages((prev) => prev.slice(0, -1));
+      await sendWithText(content);
+      return;
+    }
+
+    // Otherwise, update message in-place
+    await fetch("/api/dialogue", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dialogueId, index: editingIndex, content }),
+    });
+    setMessages((prev) => {
+      const copy = [...prev];
+      copy[editingIndex] = { ...copy[editingIndex], content };
+      return copy;
+    });
+    setEditingIndex(null);
+    setEditContent("");
+    fetchList();
   }
 
   const send = useCallback(async () => {
@@ -180,6 +247,12 @@ export default function DialogueView({
     await sendWithText(text);
   }, [input, streaming, dialogueId, fetchList]);
 
+  function cancelStreaming() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setStreaming(false);
+  }
+
   async function sendWithText(text: string) {
     if (!dialogueId) return;
 
@@ -188,6 +261,9 @@ export default function DialogueView({
 
     setInput("");
     setStreaming(true);
+
+    const abortController = new AbortController();
+    abortRef.current = abortController;
 
     const userMsg: DialogueMessage = { role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
@@ -205,6 +281,7 @@ export default function DialogueView({
           apiKey: config.apiKey,
           modelId: config.modelId,
         }),
+        signal: abortController.signal,
       });
 
       if (!res.ok) {
@@ -239,9 +316,14 @@ export default function DialogueView({
         }
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "发送失败";
-      setMessages((prev) => { const c = [...prev]; c[c.length - 1] = { role: "assistant", content: `❌ ${msg}` }; return c; });
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // User cancelled — keep partial content
+      } else {
+        const msg = err instanceof Error ? err.message : "发送失败";
+        setMessages((prev) => { const c = [...prev]; c[c.length - 1] = { role: "assistant", content: `❌ ${msg}` }; return c; });
+      }
     } finally {
+      abortRef.current = null;
       setStreaming(false);
       fetchList();
     }
@@ -376,12 +458,48 @@ export default function DialogueView({
             )}
             <div
               className={
-                isUser
-                  ? `ml-auto max-w-[75%] rounded-xl rounded-br-md px-4 py-3 text-sm whitespace-pre-wrap ${isSelected ? "bg-red-950/60 text-red-200" : "bg-zinc-800 text-zinc-200"}`
-                  : `max-w-[85%] text-sm prose-sm prose-invert prose-headings:text-zinc-200 prose-strong:text-zinc-200 prose-code:text-zinc-800 prose-code:bg-zinc-800 prose-code:px-1 prose-code:rounded prose-table:text-xs prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 ${isSelected ? "text-red-300" : "text-zinc-400"}`
+                editingIndex === i
+                  ? `w-full text-sm ${isSelected ? "text-red-300" : "text-zinc-400"}`
+                  : isUser
+                    ? `ml-auto max-w-[75%] rounded-xl rounded-br-md px-4 py-3 text-sm whitespace-pre-wrap ${isSelected ? "bg-red-950/60 text-red-200" : "bg-zinc-800 text-zinc-200"}`
+                    : `max-w-[85%] text-sm prose-sm prose-invert prose-headings:text-zinc-200 prose-strong:text-zinc-200 prose-code:text-zinc-800 prose-code:bg-zinc-800 prose-code:px-1 prose-code:rounded prose-table:text-xs prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 ${isSelected ? "text-red-300" : "text-zinc-400"}`
               }
             >
-              {m.content ? (
+              {editingIndex === i ? (
+                <div className="w-full">
+                  <textarea
+                    ref={editRef}
+                    value={editContent}
+                    onChange={(e) => {
+                      setEditContent(e.target.value);
+                      e.target.style.height = "auto";
+                      e.target.style.height = e.target.scrollHeight + "px";
+                    }}
+                    className={`w-full resize-none rounded-xl border border-amber-500/40 bg-transparent px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-amber-400/60 focus:outline-none focus:ring-1 focus:ring-amber-400/30`}
+                    rows={1}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") handleCancelEdit();
+                    }}
+                  />
+                  <div className={`mt-1 flex gap-1 ${isUser ? "justify-end" : "justify-start"}`}>
+                    <button
+                      onClick={handleConfirmEdit}
+                      disabled={!editContent.trim()}
+                      className="rounded p-1 text-emerald-400 transition hover:bg-emerald-400/10 disabled:opacity-30"
+                      title="确认"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="rounded p-1 text-zinc-500 transition hover:text-zinc-300"
+                      title="取消"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              ) : m.content ? (
                 isUser ? (
                   m.content
                 ) : (
@@ -395,12 +513,20 @@ export default function DialogueView({
             </div>
           </div>
         )})}
-        {/* resend button for last user message (when no assistant reply) */}
-        {!deleteMode && !streaming && messages.length > 0 && (() => {
+        {/* actions for last message: edit + resend/regenerate */}
+        {!deleteMode && !streaming && editingIndex === null && messages.length > 0 && (() => {
           const last = messages[messages.length - 1];
           if (last.role === "user") {
             return (
-              <div className="flex justify-end px-4">
+              <div className="flex justify-end gap-2 px-4">
+                <button
+                  onClick={() => handleStartEdit(messages.length - 1)}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-400"
+                  title="编辑"
+                >
+                  <Pencil size={12} />
+                  编辑
+                </button>
                 <button
                   onClick={() => resendMessage(last.content)}
                   className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-400"
@@ -414,7 +540,15 @@ export default function DialogueView({
           }
           if (last.role === "assistant") {
             return (
-              <div className="px-4">
+              <div className="flex gap-2 px-4">
+                <button
+                  onClick={() => handleStartEdit(messages.length - 1)}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-400"
+                  title="编辑"
+                >
+                  <Pencil size={12} />
+                  编辑
+                </button>
                 <button
                   onClick={regenerateLast}
                   className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-400"
@@ -468,13 +602,23 @@ export default function DialogueView({
             className="flex-1 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
             disabled={streaming}
           />
-          <button
-            onClick={send}
-            disabled={streaming || !input.trim()}
-            className="rounded-lg p-2.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-30"
-          >
-            <Send size={16} />
-          </button>
+          {streaming ? (
+            <button
+              onClick={cancelStreaming}
+              className="rounded-lg p-2.5 text-red-400 hover:bg-red-400/10 hover:text-red-300"
+              title="停止回复"
+            >
+              <Square size={16} />
+            </button>
+          ) : (
+            <button
+              onClick={send}
+              disabled={!input.trim()}
+              className="rounded-lg p-2.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-30"
+            >
+              <Send size={16} />
+            </button>
+          )}
         </div>
       )}
 

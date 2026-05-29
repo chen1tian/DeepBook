@@ -81,6 +81,18 @@ function removeMeta(bookId: number, dialogueId: string) {
 
 /* ── dialogue CRUD ────────────────────────────────── */
 
+/** Map component index (non-system messages only) to file index */
+function componentToFileIndex(record: DialogueRecord, componentIndex: number): number {
+  let compIdx = 0;
+  for (let i = 0; i < record.messages.length; i++) {
+    if (record.messages[i].role !== "system") {
+      if (compIdx === componentIndex) return i;
+      compIdx++;
+    }
+  }
+  return -1;
+}
+
 export function listDialogues(bookId: number): DialogueMeta[] {
   return readIndex(bookId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
@@ -155,11 +167,13 @@ export function deleteDialogue(bookId: number, dialogueId: string): void {
   removeMeta(bookId, dialogueId);
 }
 
-/** Delete specific messages from a dialogue by their indices */
-export function deleteMessages(dialogueId: string, indices: number[]): DialogueMessage[] {
+/** Delete specific messages from a dialogue by their component indices
+ *  (indices are relative to the non-system message list exposed by GET) */
+export function deleteMessages(dialogueId: string, componentIndices: number[]): DialogueMessage[] {
   const record = getDialogue(dialogueId);
   if (!record) return [];
-  const indexSet = new Set(indices);
+  const fileIndices = componentIndices.map((i) => componentToFileIndex(record, i));
+  const indexSet = new Set(fileIndices);
   record.messages = record.messages.filter((_, i) => !indexSet.has(i));
   writeFileSync(dialoguePath(dialogueId), JSON.stringify(record, null, 2), "utf-8");
 
@@ -170,6 +184,25 @@ export function deleteMessages(dialogueId: string, indices: number[]): DialogueM
     const lastAssistant = [...record.messages].reverse().find((m) => m.role === "assistant");
     if (lastAssistant) meta.lastMessage = lastAssistant.content.slice(-50);
     else meta.lastMessage = "";
+    upsertMeta(meta);
+  }
+
+  return record.messages;
+}
+
+/** Update a single message's content by component index
+ *  (index is relative to the non-system message list exposed by GET) */
+export function updateMessage(dialogueId: string, componentIndex: number, newContent: string): DialogueMessage[] {
+  const record = getDialogue(dialogueId);
+  if (!record) return [];
+  const index = componentToFileIndex(record, componentIndex);
+  if (index < 0 || index >= record.messages.length) return [];
+  record.messages[index].content = newContent;
+  writeFileSync(dialoguePath(dialogueId), JSON.stringify(record, null, 2), "utf-8");
+
+  const meta = readIndex(record.bookId).find((m) => m.id === dialogueId);
+  if (meta && record.messages[index].role === "assistant") {
+    meta.lastMessage = newContent.slice(-50);
     upsertMeta(meta);
   }
 

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { getBook } from "@/lib/db";
-import { getDialogueMessages, getDialogue, appendMessage, deleteMessages } from "@/lib/dialogue-store";
+import { getDialogueMessages, getDialogue, appendMessage, deleteMessages, updateMessage } from "@/lib/dialogue-store";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -23,6 +23,22 @@ export async function DELETE(req: NextRequest) {
     const { dialogueId, indices } = await req.json();
     if (!dialogueId || !indices) return new Response("dialogueId and indices required", { status: 400 });
     const messages = deleteMessages(dialogueId, indices);
+    return new Response(JSON.stringify({ messages }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return new Response(JSON.stringify({ error: msg }), { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const { dialogueId, index, content } = await req.json();
+    if (!dialogueId || index === undefined || !content) {
+      return new Response("dialogueId, index, content are required", { status: 400 });
+    }
+    const messages = updateMessage(dialogueId, index, content);
     return new Response(JSON.stringify({ messages }), {
       headers: { "Content-Type": "application/json" },
     });
