@@ -119,6 +119,34 @@ export function clearConnectionConfig(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+// --- analysis settings ---
+
+const ANALYSIS_KEY = "deepbook_analysis_settings";
+
+export interface AnalysisSettings {
+  messageCount: number;
+  connectionId: string;
+}
+
+const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
+  messageCount: 20,
+  connectionId: "",
+};
+
+export function getAnalysisSettings(): AnalysisSettings {
+  if (typeof window === "undefined") return DEFAULT_ANALYSIS_SETTINGS;
+  try {
+    const raw = localStorage.getItem(ANALYSIS_KEY);
+    if (raw) return JSON.parse(raw) as AnalysisSettings;
+  } catch { /* */ }
+  return DEFAULT_ANALYSIS_SETTINGS;
+}
+
+export function saveAnalysisSettings(settings: AnalysisSettings): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(ANALYSIS_KEY, JSON.stringify(settings));
+}
+
 export function getDefaultBaseUrl(provider: ProviderType): string {
   if (provider === "deepseek") return DEEPSEEK_BASE;
   return "https://api.openai.com/v1";

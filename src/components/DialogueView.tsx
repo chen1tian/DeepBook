@@ -1,9 +1,16 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square } from "lucide-react";
+import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square, MoreHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { getConnectionConfig } from "@/lib/storage";
+import { getConnectionConfig, getConnections, getAnalysisSettings } from "@/lib/storage";
+import type { StoryState, CharacterInfo } from "@/lib/story-state-types";
+import StoryStateBar, { type PanelType } from "./StoryStateBar";
+import CharacterPanel from "./CharacterPanel";
+import LocationPanel from "./LocationPanel";
+import TimePanel from "./TimePanel";
+import ProtagonistPanel from "./ProtagonistPanel";
+import AnalysisSettingsPanel from "./AnalysisSettingsPanel";
 
 interface DialogueMessage {
   role: "system" | "user" | "assistant";
@@ -54,6 +61,22 @@ export default function DialogueView({
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const analyzingRef = useRef(false);
+
+  // story state
+  const [storyState, setStoryState] = useState<StoryState>({
+    characters: [],
+    protagonist: null,
+    currentLocation: "",
+    currentDate: "",
+    currentTime: "",
+    lastAnalyzedAt: "",
+    analyzedMessageIndex: -1,
+  });
+  const [activePanel, setActivePanel] = useState<PanelType | null>(null);
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const [inputMenuOpen, setInputMenuOpen] = useState(false);
+  const inputMenuRef = useRef<HTMLDivElement>(null);
 
   // Load dialogue list
   const fetchList = useCallback(async () => {
@@ -84,6 +107,43 @@ export default function DialogueView({
   }, [dialogueId]);
 
   useEffect(() => { fetchList(); }, [fetchList]);
+
+  // load story state when dialogue changes
+  useEffect(() => {
+    if (!dialogueId) {
+      setStoryState({
+        characters: [],
+        protagonist: null,
+        currentLocation: "",
+        currentDate: "",
+        currentTime: "",
+        lastAnalyzedAt: "",
+        analyzedMessageIndex: -1,
+      });
+      return;
+    }
+    async function load() {
+      try {
+        const res = await fetch(`/api/analyze-story?dialogueId=${dialogueId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.state) setStoryState(data.state);
+        }
+      } catch { /* */ }
+    }
+    load();
+  }, [dialogueId]);
+
+  // close input menu on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (inputMenuRef.current && !inputMenuRef.current.contains(e.target as Node)) {
+        setInputMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -183,6 +243,7 @@ export default function DialogueView({
       abortRef.current = null;
       setStreaming(false);
       fetchList();
+      triggerAnalysis();
     }
   }
 
@@ -251,6 +312,84 @@ export default function DialogueView({
     abortRef.current?.abort();
     abortRef.current = null;
     setStreaming(false);
+  }
+
+  async function triggerAnalysis() {
+    if (!dialogueId || analyzingRef.current) return;
+    const settings = getAnalysisSettings();
+    // resolve connection
+    let config = getConnectionConfig();
+    if (settings.connectionId) {
+      const conns = getConnections();
+      const picked = conns.find((c) => c.id === settings.connectionId);
+      if (picked) config = picked;
+    }
+    if (!config) return;
+
+    analyzingRef.current = true;
+    try {
+      const res = await fetch("/api/analyze-story", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dialogueId,
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          modelId: config.modelId,
+          messageCount: settings.messageCount,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.state) setStoryState(data.state);
+      }
+    } catch { /* */ }
+    analyzingRef.current = false;
+  }
+
+  async function handleAvatarUpload(characterName: string, file: File): Promise<string | null> {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/avatars", { method: "POST", body: formData });
+      if (!res.ok) return null;
+      const data = await res.json();
+      // update local state
+      setStoryState((prev) => {
+        const updated = { ...prev };
+        updated.characters = prev.characters.map((c) =>
+          c.name === characterName ? { ...c, avatar: data.filename } : c
+        );
+        if (updated.protagonist?.name === characterName) {
+          updated.protagonist = { ...updated.protagonist, avatar: data.filename };
+        }
+        return updated;
+      });
+      return data.filename;
+    } catch {
+      return null;
+    }
+  }
+
+  async function handleProtagonistAvatarUpload(file: File): Promise<string | null> {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/avatars", { method: "POST", body: formData });
+      if (!res.ok) return null;
+      const data = await res.json();
+      setStoryState((prev) => {
+        if (!prev.protagonist) return prev;
+        return { ...prev, protagonist: { ...prev.protagonist, avatar: data.filename } };
+      });
+      return data.filename;
+    } catch {
+      return null;
+    }
+  }
+
+  function togglePanel(panel: PanelType) {
+    setActivePanel((prev) => (prev === panel ? null : panel));
   }
 
   async function sendWithText(text: string) {
@@ -326,6 +465,7 @@ export default function DialogueView({
       abortRef.current = null;
       setStreaming(false);
       fetchList();
+      triggerAnalysis();
     }
   }
 
@@ -374,7 +514,18 @@ export default function DialogueView({
         <button onClick={onBack} className="rounded p-1 text-zinc-500 hover:text-zinc-300" title="返回">
           <ArrowLeft size={16} />
         </button>
-        <span className="flex-1 truncate text-xs font-medium text-zinc-400">{bookName}</span>
+        <span className="truncate text-xs font-medium text-zinc-400">{bookName}</span>
+
+        {/* story state icons */}
+        {dialogueId && (
+          <StoryStateBar
+            activePanel={activePanel}
+            onOpenPanel={togglePanel}
+            hasData={storyState.characters.length > 0 || !!storyState.protagonist || !!storyState.currentLocation}
+          />
+        )}
+
+        <div className="flex-1" />
 
         {/* delete mode toggle */}
         {dialogueId && (
@@ -592,6 +743,27 @@ export default function DialogueView({
       {/* input */}
       {dialogueId && !deleteMode && (
         <div className="flex items-center gap-2 border-t border-white/5 p-3">
+          {/* input menu */}
+          <div className="relative" ref={inputMenuRef}>
+            <button
+              onClick={() => setInputMenuOpen((v) => !v)}
+              className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+              title="更多"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+            {inputMenuOpen && (
+              <div className="absolute bottom-full left-0 z-50 mb-1 w-40 rounded-lg bg-zinc-800 py-1 shadow-xl ring-1 ring-white/10">
+                <button
+                  onClick={() => { setInputMenuOpen(false); setSettingsPanelOpen(true); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-700"
+                >
+                  <Settings size={13} />
+                  分析设置
+                </button>
+              </div>
+            )}
+          </div>
           <input
             ref={inputRef}
             type="text"
@@ -746,6 +918,35 @@ export default function DialogueView({
           </div>
         </div>
       )}
+
+      {/* story state panels */}
+      <CharacterPanel
+        open={activePanel === "characters"}
+        onClose={() => setActivePanel(null)}
+        characters={storyState.characters}
+        onAvatarUpload={handleAvatarUpload}
+      />
+      <LocationPanel
+        open={activePanel === "location"}
+        onClose={() => setActivePanel(null)}
+        value={storyState.currentLocation}
+      />
+      <TimePanel
+        open={activePanel === "time"}
+        onClose={() => setActivePanel(null)}
+        date={storyState.currentDate}
+        time={storyState.currentTime}
+      />
+      <ProtagonistPanel
+        open={activePanel === "protagonist"}
+        onClose={() => setActivePanel(null)}
+        protagonist={storyState.protagonist}
+        onAvatarUpload={handleProtagonistAvatarUpload}
+      />
+      <AnalysisSettingsPanel
+        open={settingsPanelOpen}
+        onClose={() => setSettingsPanelOpen(false)}
+      />
     </div>
   );
 }
