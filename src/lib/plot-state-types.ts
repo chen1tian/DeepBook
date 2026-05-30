@@ -5,6 +5,7 @@ export interface PlotNode {
   order: number;
   activatedAt?: string;
   completedAt?: string;
+  pendingSince?: number;    // message index when node became pending (for pressure tracking)
 }
 
 export interface PlotLine {

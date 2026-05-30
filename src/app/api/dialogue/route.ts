@@ -183,7 +183,14 @@ function buildPlotHints(dialogueId: string): string | null {
     const activeLines = state.plotLines.filter((l) => l.status === "active");
     if (activeLines.length === 0) return null;
 
+    // get current message count for pressure calculation
+    const record = getDialogue(dialogueId);
+    const currentMsgIndex = record ? record.messages.filter((m) => m.role !== "system").length : 0;
+
     const hints: string[] = [];
+    const sections: string[] = [];
+
+    // 1) active node next steps
     for (const line of activeLines) {
       const activeNode = line.nodes.find((n) => n.status === "active");
       if (!activeNode) continue;
@@ -191,14 +198,49 @@ function buildPlotHints(dialogueId: string): string | null {
         (n) => n.status === "pending" && n.order > activeNode.order
       );
       if (nextNode) {
-        hints.push(`- 【${line.title}】当前：${activeNode.content} → 下一步可发展：${nextNode.content}`);
+        hints.push(`- 【${line.title}】当前：${activeNode.content} → 下一步：${nextNode.content}`);
       } else {
         hints.push(`- 【${line.title}】当前：${activeNode.content}`);
       }
     }
 
-    if (hints.length === 0) return null;
-    return `[剧情提示] 以下是当前故事的可能发展方向，请自然地融入叙事中，不要生硬地照搬：\n${hints.join("\n")}`;
+    // 2) pending first-nodes on inactive lines (no active node yet) — with pressure
+    const untouchedLines: string[] = [];
+    const pressureLines: string[] = [];
+    const urgentLines: string[] = [];
+
+    for (const line of activeLines) {
+      if (line.nodes.some((n) => n.status === "active")) continue; // already has active
+      const firstPending = line.nodes.find((n) => n.status === "pending");
+      if (!firstPending) continue;
+      const waited = firstPending.pendingSince != null
+        ? currentMsgIndex - firstPending.pendingSince
+        : 0;
+      const entry = `- 【${line.title}】${firstPending.content}`;
+      if (waited >= 20) urgentLines.push(entry);
+      else if (waited >= 10) pressureLines.push(entry);
+      else untouchedLines.push(entry);
+    }
+
+    if (untouchedLines.length > 0) {
+      sections.push(`📋 可选方向（请根据故事节奏自然地选择时机引入）：\n${untouchedLines.join("\n")}`);
+    }
+    if (pressureLines.length > 0) {
+      sections.push(`⏳ 建议方向（这些剧情线已经等待了一段时间，请考虑在合适的时机展开）：\n${pressureLines.join("\n")}`);
+    }
+    if (urgentLines.length > 0) {
+      sections.push(`🔥 强烈推荐（这些剧情线已经等待较久，请尽快寻找切入点引入）：\n${urgentLines.join("\n")}`);
+    }
+
+    if (hints.length === 0 && sections.length === 0) return null;
+
+    const parts: string[] = [];
+    if (hints.length > 0) {
+      parts.push(`[剧情提示-进行中] 以下是当前正在进行的故事发展方向：\n${hints.join("\n")}`);
+    }
+    parts.push(...sections);
+
+    return `${parts.join("\n\n")}\n\n注意：请自然地融入叙事，不要生硬地照搬。根据故事当下的节奏和氛围，自主判断何时引入哪个方向。`;
   } catch {
     return null;
   }

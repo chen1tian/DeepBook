@@ -140,12 +140,21 @@ ${existingJson}
   "characters": [
     {
       "name": "角色名",
-      "alias": "别名/外号（没有则为空字符串）",
+      "alias": "别名/外号/昵称/小名，多个用中文逗号分隔。例如：胖子、磊哥、肥仔（没有则为空字符串）",
       "avatar": "default",
       "persona": "人设/性格描述",
       "appearance": "外观/衣物打扮",
       "preferences": "喜好",
-      "background": "背景故事"
+      "background": "背景故事",
+      "lifeEvents": [
+        {
+          "date": "2024年9月",
+          "description": "升职为技术经理",
+          "cause": "周远山在裁员后推荐了他",
+          "effect": "开始承担管理职责，与林薇薇产生摩擦",
+          "relatedCharacters": ["周远山", "林薇薇"]
+        }
+      ]
     }
   ],
   "protagonist": { ...主角信息，格式同角色 },
@@ -166,7 +175,9 @@ ${existingJson}
 2. 只返回 JSON，不要任何其他文字
 3. 基于已有状态增量更新，不要丢失已有角色和设定
 4. 主角也放在 characters 列表中
-5. settings 收集对话中提到的重要故事设定（世界观规则、人物关系、历史背景、能力体系等）。同一个设定如果已有则用新信息更新，不要创建重复项`;
+5. alias 要收集角色在对话中出现的所有称呼、外号、昵称、小名，多个用中文逗号分隔
+6. lifeEvents 提取最近对话中角色发生的重要事件，重点关注因果：谁做了什么，导致这个角色怎么样了。不要重复已有的事件。每个事件必须包含 cause 和 effect 字段
+7. settings 收集对话中提到的重要故事设定（世界观规则、人物关系、历史背景、能力体系等）。同一个设定如果已有则用新信息更新，不要创建重复项`;
 }
 
 function parseState(raw: string, fallback: StoryState): StoryState {
@@ -185,10 +196,8 @@ function parseState(raw: string, fallback: StoryState): StoryState {
       ? parsed.settings.map((s: { key: string; value: string; category: string }) => {
           const existing = existingSettings.find((es) => es.key === s.key);
           if (existing) {
-            // Update existing setting
             return { ...existing, value: s.value || existing.value, category: s.category || existing.category };
           }
-          // New setting
           return {
             id: `set_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             key: s.key || "",
@@ -197,12 +206,22 @@ function parseState(raw: string, fallback: StoryState): StoryState {
           };
         })
       : [];
-    // Keep existing settings not in the new list
     const keptSettings = existingSettings.filter((s) => !newSettings.some((ns: { key: string }) => ns.key === s.key));
     const mergedSettings = [...newSettings, ...keptSettings];
 
+    // Merge lifeEvents for characters: dedup by date+description
+    const existingChars = new Map(fallback.characters.map((c) => [c.name, c]));
+    const mergedChars = (Array.isArray(parsed.characters) ? parsed.characters : []).map((c: CharacterInfo) => {
+      const existing = existingChars.get(c.name);
+      if (!existing) return { ...c, lifeEvents: c.lifeEvents || [] };
+      // merge lifeEvents: keep existing, add new ones not yet present
+      const existingEventKeys = new Set(existing.lifeEvents?.map((e) => `${e.date}::${e.description}`) || []);
+      const newEvents = (c.lifeEvents || []).filter((e) => !existingEventKeys.has(`${e.date}::${e.description}`));
+      return { ...c, lifeEvents: [...(existing.lifeEvents || []), ...newEvents] };
+    });
+
     return {
-      characters: Array.isArray(parsed.characters) ? parsed.characters : defaults.characters,
+      characters: mergedChars.length > 0 ? mergedChars : defaults.characters,
       protagonist: parsed.protagonist || defaults.protagonist,
       currentLocation: parsed.currentLocation || defaults.currentLocation,
       currentDate: parsed.currentDate || defaults.currentDate,

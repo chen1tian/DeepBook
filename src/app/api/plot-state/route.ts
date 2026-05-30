@@ -39,7 +39,18 @@ export async function POST(req: NextRequest) {
       return new Response(JSON.stringify({ error: "Access denied" }), { status: 403 });
     }
 
-    savePlotState(dialogueId, state as PlotState);
+    // auto-set pendingSince for new pending nodes
+    const msgCount = record.messages.filter((m) => m.role !== "system").length;
+    const newState = state as PlotState;
+    for (const line of newState.plotLines) {
+      for (const node of line.nodes) {
+        if (node.status === "pending" && node.pendingSince == null) {
+          node.pendingSince = msgCount;
+        }
+      }
+    }
+
+    savePlotState(dialogueId, newState);
     return new Response(JSON.stringify({ ok: true }), {
       headers: { "Content-Type": "application/json" },
     });

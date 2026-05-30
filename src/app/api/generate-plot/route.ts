@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     const recentMessages = nonSystem.slice(-count);
     const recentText = recentMessages.map((m) => `${m.role}: ${m.content.slice(0, 1500)}`).join("\n\n");
 
-    const systemPrompt = buildGenerationPrompt(plotState, storyState);
+    const systemPrompt = buildRichContext(plotState, storyState, recentMessages);
 
     const client = new OpenAI({ apiKey, baseURL: baseUrl.replace(/\/$/, "") });
     const completion = await client.chat.completions.create({
@@ -70,17 +70,48 @@ function generateId(): string {
   return `pl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function buildGenerationPrompt(plotState: ReturnType<typeof getPlotState>, storyState: ReturnType<typeof getStoryState>): string {
+function buildRichContext(
+  plotState: ReturnType<typeof getPlotState>,
+  storyState: ReturnType<typeof getStoryState>,
+  recentMessages: { role: string; content: string }[]
+): string {
   const existingTitles = plotState.plotLines.map((l) => `- ${l.title} (${l.status})`).join("\n");
-  const characters = storyState.characters.map((c) => c.name).join("、") || "未知";
 
-  return `你是一个创意故事策划师。根据当前故事进展，为故事生成可能的分支剧情线。
+  // build recent text for keyword matching
+  const recentText = recentMessages.map((m) => m.content).join(" ");
 
-已有剧情线：
-${existingTitles || "（无）"}
+  // multi-name matching: find mentioned characters
+  const characterProfiles: string[] = [];
+  for (const char of storyState.characters) {
+    const keywords = [char.name, ...char.alias.split(/[、，,]/).map((s) => s.trim()).filter(Boolean)];
+    const mentioned = keywords.some((kw) => recentText.includes(kw));
+    const isProtagonist = storyState.protagonist?.name === char.name;
+    if (!mentioned && !isProtagonist) continue;
 
-主要角色：${characters}
-当前地点：${storyState.currentLocation || "未知"}
+    const profile = buildCharacterProfile(char);
+    if (profile) characterProfiles.push(profile);
+  }
+
+  // causal network: extract unresolved tensions
+  const causalSummary = buildCausalNetwork(storyState);
+
+  // compose
+  const parts: string[] = [];
+  parts.push(`已有剧情线：\n${existingTitles || "（无）"}`);
+  parts.push(`当前地点：${storyState.currentLocation || "未知"}`);
+  parts.push(`当前日期：${storyState.currentDate || "未知"}  当前时间：${storyState.currentTime || "未知"}`);
+  if (characterProfiles.length > 0) {
+    parts.push(`相关角色信息（最近对话中提及的角色）：\n${characterProfiles.join("\n---\n")}`);
+  }
+  if (causalSummary) {
+    parts.push(`角色因果网络（未解决的张力/冲突/人情债）：\n${causalSummary}`);
+  }
+
+  const contextBlock = parts.join("\n\n");
+
+  return `你是一个创意故事策划师。根据当前故事进展和角色状态，为故事生成可能的分支剧情线。
+
+${contextBlock}
 
 请生成 1-3 条新的剧情线（不要与已有剧情线重复标题），每条剧情线包含 2-4 个具体节点。
 
@@ -89,6 +120,8 @@ ${existingTitles || "（无）"}
 - 紧张路线（冲突、危机、对抗）
 - 反转路线（意外、背叛、真相揭露）
 - 高风险高回报路线（冒险、赌注、重大抉择）
+
+优先从角色因果网络中提取素材——未解决的冲突、人情债、积压的情绪，都是绝佳的剧情种子。
 
 返回 JSON 格式：
 {
@@ -105,6 +138,56 @@ ${existingTitles || "（无）"}
 }
 
 注意：只返回 JSON，不要其他文字。`;
+}
+
+function buildCharacterProfile(char: { name: string; alias: string; persona: string; appearance: string; preferences: string; background: string; lifeEvents?: { date: string; description: string; cause: string; effect: string; relatedCharacters: string[] }[] }): string {
+  const lines: string[] = [];
+  lines.push(`【${char.name}】${char.alias ? `（别名：${char.alias}）` : ""}`);
+  if (char.persona) lines.push(`性格：${char.persona}`);
+  if (char.appearance) lines.push(`外观：${char.appearance}`);
+  if (char.preferences) lines.push(`喜好：${char.preferences}`);
+  if (char.background) lines.push(`背景：${char.background}`);
+
+  // life events: sorted by date descending, recent first
+  const events = char.lifeEvents || [];
+  if (events.length > 0) {
+    const sorted = [...events].sort((a, b) => b.date.localeCompare(a.date));
+    const recent = sorted.slice(0, 10);
+    const eventLines = recent.map((e) =>
+      `  ${e.date}: ${e.description} ← 原因：${e.cause} → 结果：${e.effect}${e.relatedCharacters?.length ? `（关联：${e.relatedCharacters.join("、")}）` : ""}`
+    );
+    // collapse older events
+    if (sorted.length > 10) {
+      const olderSummary = sorted.slice(10).map((e) => `${e.date}: ${e.description}`).join("；");
+      lines.push(`最近经历：\n${eventLines.join("\n")}\n更早经历：${olderSummary}`);
+    } else {
+      lines.push(`人生经历：\n${eventLines.join("\n")}`);
+    }
+  }
+
+  // truncate to ~500 chars
+  let profile = lines.join("\n");
+  if (profile.length > 500) {
+    profile = profile.slice(0, 497) + "...";
+  }
+  return profile;
+}
+
+function buildCausalNetwork(storyState: ReturnType<typeof getStoryState>): string {
+  const allEvents: { char: string; event: { date: string; description: string; cause: string; effect: string; relatedCharacters: string[] } }[] = [];
+  for (const char of storyState.characters) {
+    for (const ev of (char.lifeEvents || [])) {
+      allEvents.push({ char: char.name, event: ev });
+    }
+  }
+  // sort by date descending
+  allEvents.sort((a, b) => b.event.date.localeCompare(a.event.date));
+  if (allEvents.length === 0) return "";
+
+  const recent = allEvents.slice(0, 15);
+  return recent.map(({ char, event: e }) =>
+    `${char}: ${e.date} ${e.description}（因：${e.cause} → 果：${e.effect}）`
+  ).join("\n");
 }
 
 interface RawNode { content: string; }
@@ -127,6 +210,7 @@ function parseNewPlotLines(raw: string): ReturnType<typeof getPlotState>["plotLi
         id: generateId(),
         content: n.content || "",
         status: "pending" as const,
+        pendingSince: nonSystem.length,
         order: i,
       })),
       status: "active" as const,

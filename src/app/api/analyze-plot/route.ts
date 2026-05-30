@@ -131,6 +131,7 @@ function parsePlotUpdates(raw: string, state: PlotState): Record<string, string[
         if (next) {
           next.status = "active";
           next.activatedAt = now;
+          delete next.pendingSince;
         }
       }
     }
@@ -146,6 +147,7 @@ function parsePlotUpdates(raw: string, state: PlotState): Record<string, string[
       if (node) {
         node.status = "active";
         node.activatedAt = now;
+        delete node.pendingSince;
       }
     }
 
