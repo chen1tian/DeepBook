@@ -24,6 +24,31 @@ export async function GET(req: NextRequest) {
   });
 }
 
+// PATCH — save story state directly (e.g. manual settings edits)
+export async function PATCH(req: NextRequest) {
+  try {
+    const { dialogueId, state } = await req.json();
+    if (!dialogueId) return new Response(JSON.stringify({ error: "dialogueId is required" }), { status: 400 });
+
+    const record = getDialogue(dialogueId);
+    if (!record) return new Response(JSON.stringify({ error: "Dialogue not found" }), { status: 404 });
+
+    const userId = await requireUserId();
+    if (userId === "NEEDS_SETUP") return new Response(JSON.stringify({ error: "请先完成初始化设置" }), { status: 400 });
+    if (record.userId && record.userId !== userId) {
+      return new Response(JSON.stringify({ error: "Access denied" }), { status: 403 });
+    }
+
+    saveStoryState(dialogueId, state as StoryState);
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return new Response(JSON.stringify({ error: msg }), { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { dialogueId, baseUrl, apiKey, modelId, messageCount } = await req.json();
@@ -102,9 +127,10 @@ function buildAnalysisPrompt(existing: StoryState): string {
     currentLocation: existing.currentLocation,
     currentDate: existing.currentDate,
     currentTime: existing.currentTime,
+    settings: existing.settings || [],
   }, null, 2);
 
-  return `你是一个故事状态追踪器。根据对话记录，提取并更新当前故事状态。结合已有的状态进行增量更新——新增角色、更新已有角色信息、更新地点时间等。
+  return `你是一个故事状态追踪器。根据对话记录，提取并更新当前故事状态。结合已有的状态进行增量更新——新增角色、更新已有角色信息、更新地点时间、提取故事设定等。
 
 已有状态：
 ${existingJson}
@@ -125,37 +151,67 @@ ${existingJson}
   "protagonist": { ...主角信息，格式同角色 },
   "currentLocation": "当前地点（没有则为空字符串）",
   "currentDate": "当前日期（没有则为空字符串）",
-  "currentTime": "当前时间（没有则为空字符串）"
+  "currentTime": "当前时间（没有则为空字符串）",
+  "settings": [
+    {
+      "key": "设定名称（简短概括）",
+      "value": "设定内容（详细描述这个设定）",
+      "category": "分类：世界观/人物关系/历史事件/规则体系/其他"
+    }
+  ]
 }
 
 注意：
 1. avatar 字段固定为 "default"，不要修改
 2. 只返回 JSON，不要任何其他文字
-3. 基于已有状态增量更新，不要丢失已有角色
-4. 主角也放在 characters 列表中`;
+3. 基于已有状态增量更新，不要丢失已有角色和设定
+4. 主角也放在 characters 列表中
+5. settings 收集对话中提到的重要故事设定（世界观规则、人物关系、历史背景、能力体系等）。同一个设定如果已有则用新信息更新，不要创建重复项`;
 }
 
 function parseState(raw: string, fallback: StoryState): StoryState {
   try {
-    // try to extract JSON from the response
     let json = raw.trim();
-    // remove markdown code fences if present
     const fenceMatch = json.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenceMatch) json = fenceMatch[1].trim();
     const parsed = JSON.parse(json);
 
     const defaults = getDefaultStoryState();
+
+    // Merge settings: dedup by key, assign IDs to new ones
+    const existingSettings = fallback.settings || [];
+    const existingKeys = new Set(existingSettings.map((s) => s.key));
+    const newSettings: typeof existingSettings = Array.isArray(parsed.settings)
+      ? parsed.settings.map((s: { key: string; value: string; category: string }) => {
+          const existing = existingSettings.find((es) => es.key === s.key);
+          if (existing) {
+            // Update existing setting
+            return { ...existing, value: s.value || existing.value, category: s.category || existing.category };
+          }
+          // New setting
+          return {
+            id: `set_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            key: s.key || "",
+            value: s.value || "",
+            category: s.category || "其他",
+          };
+        })
+      : [];
+    // Keep existing settings not in the new list
+    const keptSettings = existingSettings.filter((s) => !newSettings.some((ns: { key: string }) => ns.key === s.key));
+    const mergedSettings = [...newSettings, ...keptSettings];
+
     return {
       characters: Array.isArray(parsed.characters) ? parsed.characters : defaults.characters,
       protagonist: parsed.protagonist || defaults.protagonist,
       currentLocation: parsed.currentLocation || defaults.currentLocation,
       currentDate: parsed.currentDate || defaults.currentDate,
       currentTime: parsed.currentTime || defaults.currentTime,
+      settings: mergedSettings,
       lastAnalyzedAt: fallback.lastAnalyzedAt,
       analyzedMessageIndex: fallback.analyzedMessageIndex,
     };
   } catch {
-    // if parsing fails, return existing state unchanged
     return fallback;
   }
 }

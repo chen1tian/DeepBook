@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square, MoreHorizontal, GitBranch } from "lucide-react";
+import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { getConnectionConfig, getConnections, getAnalysisSettings, getPlotSettings } from "@/lib/storage";
-import type { StoryState, CharacterInfo } from "@/lib/story-state-types";
+import type { StoryState, CharacterInfo, StorySetting } from "@/lib/story-state-types";
 import StoryStateBar, { type PanelType } from "./StoryStateBar";
 import CharacterPanel from "./CharacterPanel";
 import LocationPanel from "./LocationPanel";
@@ -13,6 +13,7 @@ import ProtagonistPanel from "./ProtagonistPanel";
 import AnalysisSettingsPanel from "./AnalysisSettingsPanel";
 import PlotPanel from "./PlotPanel";
 import PlotSettingsPanel from "./PlotSettingsPanel";
+import SettingPanel from "./SettingPanel";
 
 interface DialogueMessage {
   role: "system" | "user" | "assistant";
@@ -75,16 +76,15 @@ export default function DialogueView({
     currentLocation: "",
     currentDate: "",
     currentTime: "",
+    settings: [],
     lastAnalyzedAt: "",
     analyzedMessageIndex: -1,
   });
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [plotSettingsOpen, setPlotSettingsOpen] = useState(false);
-  const [inputMenuOpen, setInputMenuOpen] = useState(false);
   const [hasPlotData, setHasPlotData] = useState(false);
   const plotStateRef = useRef<{ plotLines: { id: string; title: string; status: string }[] }>({ plotLines: [] });
-  const inputMenuRef = useRef<HTMLDivElement>(null);
 
   // Load dialogue list
   const fetchList = useCallback(async () => {
@@ -125,6 +125,7 @@ export default function DialogueView({
         currentLocation: "",
         currentDate: "",
         currentTime: "",
+        settings: [],
         lastAnalyzedAt: "",
         analyzedMessageIndex: -1,
       });
@@ -142,16 +143,19 @@ export default function DialogueView({
     load();
   }, [dialogueId]);
 
-  // close input menu on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (inputMenuRef.current && !inputMenuRef.current.contains(e.target as Node)) {
-        setInputMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+  // Save settings to server
+  async function handleSaveSettings(settings: StorySetting[]) {
+    if (!dialogueId) return;
+    const updated = { ...storyState, settings };
+    setStoryState(updated);
+    try {
+      await fetch("/api/analyze-story", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dialogueId, state: updated }),
+      });
+    } catch { /* */ }
+  }
 
   // Auto-scroll: only when user hasn't scrolled up
   useEffect(() => {
@@ -640,6 +644,9 @@ export default function DialogueView({
             onOpenPanel={togglePanel}
             hasData={storyState.characters.length > 0 || !!storyState.protagonist || !!storyState.currentLocation}
             hasPlotData={hasPlotData}
+            hasSettingsData={(storyState.settings || []).length > 0}
+            onOpenAnalysisSettings={() => setSettingsPanelOpen(true)}
+            onOpenPlotSettings={() => setPlotSettingsOpen(true)}
           />
         )}
 
@@ -861,41 +868,6 @@ export default function DialogueView({
       {/* input */}
       {dialogueId && !deleteMode && (
         <div className="flex items-center gap-2 border-t border-white/5 p-3">
-          {/* input menu */}
-          <div className="relative" ref={inputMenuRef}>
-            <button
-              onClick={() => setInputMenuOpen((v) => !v)}
-              className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-              title="更多"
-            >
-              <MoreHorizontal size={16} />
-            </button>
-            {inputMenuOpen && (
-              <div className="absolute bottom-full left-0 z-50 mb-1 w-40 rounded-lg bg-zinc-800 py-1 shadow-xl ring-1 ring-white/10">
-                <button
-                  onClick={() => { setInputMenuOpen(false); setSettingsPanelOpen(true); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-700"
-                >
-                  <Settings size={13} />
-                  分析设置
-                </button>
-                <button
-                  onClick={() => { setInputMenuOpen(false); setPlotSettingsOpen(true); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-700"
-                >
-                  <Settings size={13} />
-                  剧情设置
-                </button>
-                <button
-                  onClick={() => { setInputMenuOpen(false); setActivePanel("plot"); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-700"
-                >
-                  <GitBranch size={13} />
-                  剧情
-                </button>
-              </div>
-            )}
-          </div>
           <textarea
             ref={inputRef}
             value={input}
@@ -1090,6 +1062,12 @@ export default function DialogueView({
       <PlotSettingsPanel
         open={plotSettingsOpen}
         onClose={() => setPlotSettingsOpen(false)}
+      />
+      <SettingPanel
+        open={activePanel === "settings"}
+        onClose={() => setActivePanel(null)}
+        settings={storyState.settings || []}
+        onSave={handleSaveSettings}
       />
     </div>
   );

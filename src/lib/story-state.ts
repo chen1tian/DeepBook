@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import type { CharacterInfo, StoryState } from "./story-state-types";
+import type { CharacterInfo, StorySetting, StoryState } from "./story-state-types";
 
 // re-export types
-export type { CharacterInfo, StoryState };
+export type { CharacterInfo, StorySetting, StoryState };
 
 const DATA_DIR = join(process.cwd(), ".data");
 const STATE_DIR = join(DATA_DIR, "story-states");
@@ -23,6 +23,7 @@ export function getDefaultStoryState(): StoryState {
     currentLocation: "",
     currentDate: "",
     currentTime: "",
+    settings: [],
     lastAnalyzedAt: "",
     analyzedMessageIndex: -1,
   };
