@@ -591,7 +591,7 @@ export default function DialogueView({
       {/* toolbar */}
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-white/5 px-3">
         <button onClick={onBack} className="rounded p-1 text-zinc-500 hover:text-zinc-300" title="返回">
-          <ArrowLeft size={16} />
+          <ArrowLeft size={22} />
         </button>
         <span className="truncate text-xs font-medium text-zinc-400">{bookName}</span>
 
@@ -617,7 +617,7 @@ export default function DialogueView({
             className={`rounded p-1 transition ${deleteMode ? "text-red-400" : "text-zinc-500 hover:text-zinc-300"}`}
             title={deleteMode ? "退出删除模式" : "删除消息"}
           >
-            <Trash2 size={14} />
+            <Trash2 size={20} />
           </button>
         )}
 
@@ -628,7 +628,7 @@ export default function DialogueView({
             className="rounded p-1 text-zinc-500 hover:text-zinc-300"
             title="菜单"
           >
-            <Menu size={16} />
+            <Menu size={22} />
           </button>
           {menuOpen && (
             <>

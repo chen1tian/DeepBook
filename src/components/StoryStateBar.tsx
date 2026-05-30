@@ -12,11 +12,11 @@ interface Props {
 }
 
 const items: { type: PanelType; icon: typeof Users; label: string; size: number }[] = [
-  { type: "characters", icon: Users, label: "角色", size: 15 },
-  { type: "location", icon: MapPin, label: "地点", size: 14 },
-  { type: "time", icon: Calendar, label: "时间", size: 14 },
-  { type: "protagonist", icon: User, label: "主角", size: 15 },
-  { type: "plot", icon: GitBranch, label: "剧情", size: 14 },
+  { type: "characters", icon: Users, label: "角色", size: 21 },
+  { type: "location", icon: MapPin, label: "地点", size: 20 },
+  { type: "time", icon: Calendar, label: "时间", size: 20 },
+  { type: "protagonist", icon: User, label: "主角", size: 21 },
+  { type: "plot", icon: GitBranch, label: "剧情", size: 20 },
 ];
 
 function iconClass(type: PanelType, activePanel: PanelType | null, hasData: boolean, hasPlotData?: boolean): string {
