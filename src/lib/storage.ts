@@ -181,24 +181,40 @@ export async function loadConnectionsFromServer(): Promise<void> {
   }
 }
 
-/** 将连接保存到服务端（创建或更新） */
+/** 将连接保存到服务端（创建或更新，服务端自动 upsert） */
 export async function saveConnectionToServer(config: ConnectionConfig): Promise<void> {
   if (typeof window === "undefined") return;
   try {
-    // 先检查是否已存在
-    const existing = readAll().find((c) => c.id === config.id);
-    if (existing) {
-      await fetch("/api/connections", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
-    } else {
-      await fetch("/api/connections", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
+    const res = await fetch("/api/connections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    // 用服务端返回的连接数据更新本地（确保 ID 一致）
+    if (data.connection) {
+      const serverConn = data.connection as Record<string, unknown>;
+      const updated: ConnectionConfig = {
+        id: serverConn.id as string,
+        name: serverConn.name as string,
+        provider: serverConn.provider as ProviderType,
+        baseUrl: serverConn.baseUrl as string,
+        apiKey: serverConn.apiKey as string,
+        modelId: serverConn.modelId as string,
+        isDefault: serverConn.isDefault as boolean | undefined,
+      };
+      // 替换本地对应连接（旧 ID 或新 ID）
+      const all = readAll();
+      const idx = all.findIndex(
+        (c) => c.id === config.id || c.id === updated.id
+      );
+      if (idx >= 0) {
+        all[idx] = updated;
+      } else {
+        all.push(updated);
+      }
+      writeAll(all);
     }
   } catch { /* */ }
 }

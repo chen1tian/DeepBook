@@ -332,7 +332,6 @@ export default function DialogueView({
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || streaming || !dialogueId) return;
-    setInput("");
     await sendWithText(text);
   }, [input, streaming, dialogueId, fetchList]);
 
@@ -504,7 +503,6 @@ export default function DialogueView({
       return;
     }
 
-    setInput("");
     setStreaming(true);
 
     const abortController = new AbortController();

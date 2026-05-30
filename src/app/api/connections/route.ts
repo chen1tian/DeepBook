@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { StoredConnection } from "@/lib/connection-store";
 import {
   getConnectionsByUser,
+  getConnection,
   createConnection,
   updateConnection,
   deleteConnection,
@@ -30,15 +32,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ connections: getConnectionsByUser(userId) });
     }
 
-    // 单个创建
-    const { name, provider, baseUrl, apiKey, modelId, isDefault } = body;
+    // 单个创建/更新（upsert：如果客户端提供了 id 且已存在则更新，否则创建）
+    const { id, name, provider, baseUrl, apiKey, modelId, isDefault } = body;
     if (!name || !provider || !apiKey) {
       return NextResponse.json({ error: "name, provider, apiKey are required" }, { status: 400 });
     }
-    const conn = createConnection(
-      { name, provider: provider || "deepseek", baseUrl: baseUrl || "", apiKey, modelId: modelId || "", isDefault },
-      userId
-    );
+
+    let conn: StoredConnection;
+    if (id && getConnection(id, userId)) {
+      // 已存在，更新
+      const updated = updateConnection(id, userId, {
+        name,
+        provider: provider || "deepseek",
+        baseUrl: baseUrl || "",
+        apiKey,
+        modelId: modelId || "",
+        isDefault,
+      });
+      if (!updated) {
+        return NextResponse.json({ error: "更新失败" }, { status: 500 });
+      }
+      conn = updated;
+    } else {
+      // 新连接
+      conn = createConnection(
+        { name, provider: provider || "deepseek", baseUrl: baseUrl || "", apiKey, modelId: modelId || "", isDefault },
+        userId
+      );
+    }
     return NextResponse.json({ connection: conn }, { status: 201 });
   } catch (err) {
     if (err instanceof Response) throw err;

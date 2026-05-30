@@ -134,7 +134,7 @@ export default function ConnectionDialog({ open, onClose }: Props) {
     }
   }
 
-  function handleSave() {
+  async function handleSave() {
     const name = connName.trim() || "未命名连接";
     if (!selectedModel) {
       setError("请选择一个模型");
@@ -149,7 +149,7 @@ export default function ConnectionDialog({ open, onClose }: Props) {
       modelId: selectedModel,
     };
     saveConnection(config);
-    saveConnectionToServer(config); // 同步到服务端
+    await saveConnectionToServer(config); // 同步到服务端（等待完成，确保本地 ID 更新）
     handleCancelForm();
   }
 
@@ -174,10 +174,10 @@ export default function ConnectionDialog({ open, onClose }: Props) {
     window.dispatchEvent(new CustomEvent("deepbook:connection-changed"));
   }
 
-  function handleDuplicate(id: string) {
+  async function handleDuplicate(id: string) {
     const dup = duplicateConnection(id);
     if (dup) {
-      saveConnectionToServer(dup); // 同步到服务端
+      await saveConnectionToServer(dup); // 同步到服务端（等待完成）
     }
     refreshConnections();
     window.dispatchEvent(new CustomEvent("deepbook:connection-changed"));

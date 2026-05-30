@@ -143,7 +143,6 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
     }
 
     setError("");
-    if (!text) setInput("");
 
     const userMsg: Message = { role: "user", content };
     const updated = [...messages, userMsg];
