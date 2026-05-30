@@ -66,6 +66,7 @@ export default function DialogueView({
   const abortRef = useRef<AbortController | null>(null);
   const analyzingRef = useRef(false);
   const userScrolledUpRef = useRef(false); // true = 用户已上滑，暂停自动滚动
+  const prevScrollTopRef = useRef(0);
 
   // story state
   const [storyState, setStoryState] = useState<StoryState>({
@@ -159,12 +160,21 @@ export default function DialogueView({
     }
   }, [messages]);
 
-  // Detect user scroll: if scrolled away from bottom, pause auto-scroll
+  // Detect user scroll direction: scroll up → unlock; scroll to bottom → re-lock
   function handleMessagesScroll() {
     const el = messagesContainerRef.current;
     if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    userScrolledUpRef.current = distFromBottom > 50;
+    const scrollTop = el.scrollTop;
+    const distFromBottom = el.scrollHeight - scrollTop - el.clientHeight;
+
+    if (scrollTop < prevScrollTopRef.current) {
+      // 用户向上滑动 → 解除自动滚动
+      userScrolledUpRef.current = true;
+    } else if (distFromBottom < 10) {
+      // 用户滚回最底部 → 恢复自动滚动
+      userScrolledUpRef.current = false;
+    }
+    prevScrollTopRef.current = scrollTop;
   }
 
   async function resendMessage(content: string) {
@@ -332,6 +342,7 @@ export default function DialogueView({
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || streaming || !dialogueId) return;
+    setInput(""); // 点击发送按钮 → 清空输入框
     await sendWithText(text);
   }, [input, streaming, dialogueId, fetchList]);
 

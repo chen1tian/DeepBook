@@ -32,6 +32,7 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const userScrolledUpRef = useRef(false); // true = 用户已上滑，暂停自动滚动
+  const prevScrollTopRef = useRef(0);
 
   // Load chat history on mount — each task has its own chatId
   useEffect(() => {
@@ -83,12 +84,21 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
     }
   }, [messages]);
 
-  // Detect user scroll: if scrolled away from bottom, pause auto-scroll
+  // Detect user scroll direction: scroll up → unlock; scroll to bottom → re-lock
   function handleMessagesScroll() {
     const el = messagesContainerRef.current;
     if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    userScrolledUpRef.current = distFromBottom > 50;
+    const scrollTop = el.scrollTop;
+    const distFromBottom = el.scrollHeight - scrollTop - el.clientHeight;
+
+    if (scrollTop < prevScrollTopRef.current) {
+      // 用户向上滑动 → 解除自动滚动
+      userScrolledUpRef.current = true;
+    } else if (distFromBottom < 10) {
+      // 用户滚回最底部 → 恢复自动滚动
+      userScrolledUpRef.current = false;
+    }
+    prevScrollTopRef.current = scrollTop;
   }
 
   // auto-trigger first message when task is set
@@ -143,6 +153,8 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
     }
 
     setError("");
+    // 用户点击发送按钮 → 清空输入框
+    if (!text) setInput("");
 
     const userMsg: Message = { role: "user", content };
     const updated = [...messages, userMsg];
