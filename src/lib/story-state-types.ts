@@ -15,6 +15,7 @@ export interface CharacterInfo {
   preferences: string;
   background: string;
   lifeEvents: LifeEvent[];
+  items: string[];       // 角色当前拥有的物品
 }
 
 export interface StorySetting {

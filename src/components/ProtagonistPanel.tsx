@@ -101,6 +101,7 @@ export default function ProtagonistPanel({ open, onClose, protagonist, onAvatarU
               <Field label="别名/外号" value={protagonist.alias} />
               <Field label="人设" value={protagonist.persona} />
               <Field label="外观" value={protagonist.appearance} />
+              <ItemsField label="物品" items={protagonist.items} />
               <Field label="喜好" value={protagonist.preferences} />
               <Field label="背景" value={protagonist.background} />
             </div>
@@ -121,6 +122,22 @@ function Field({ label, value }: { label: string; value: string }) {
     <div>
       <div className="text-[10px] font-medium text-zinc-600 uppercase tracking-wide">{label}</div>
       <div className="mt-0.5 text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">{value}</div>
+    </div>
+  );
+}
+
+function ItemsField({ label, items }: { label: string; items?: string[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[10px] font-medium text-zinc-600 uppercase tracking-wide">{label}</div>
+      <div className="mt-1 grid grid-cols-2 gap-1">
+        {items.map((item, i) => (
+          <div key={i} className="rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-300 truncate" title={item}>
+            {item}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

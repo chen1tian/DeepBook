@@ -140,13 +140,14 @@ ${contextBlock}
 注意：只返回 JSON，不要其他文字。`;
 }
 
-function buildCharacterProfile(char: { name: string; alias: string; persona: string; appearance: string; preferences: string; background: string; lifeEvents?: { date: string; description: string; cause: string; effect: string; relatedCharacters: string[] }[] }): string {
+function buildCharacterProfile(char: { name: string; alias: string; persona: string; appearance: string; preferences: string; background: string; items?: string[]; lifeEvents?: { date: string; description: string; cause: string; effect: string; relatedCharacters: string[] }[] }): string {
   const lines: string[] = [];
   lines.push(`【${char.name}】${char.alias ? `（别名：${char.alias}）` : ""}`);
   if (char.persona) lines.push(`性格：${char.persona}`);
   if (char.appearance) lines.push(`外观：${char.appearance}`);
   if (char.preferences) lines.push(`喜好：${char.preferences}`);
   if (char.background) lines.push(`背景：${char.background}`);
+  if (char.items && char.items.length > 0) lines.push(`物品：${char.items.join("、")}`);
 
   // life events: sorted by date descending, recent first
   const events = char.lifeEvents || [];

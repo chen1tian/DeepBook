@@ -146,6 +146,7 @@ ${existingJson}
       "appearance": "外观/衣物打扮",
       "preferences": "喜好",
       "background": "背景故事",
+      "items": ["物品1", "物品2"],
       "lifeEvents": [
         {
           "date": "2024年9月",
@@ -177,7 +178,9 @@ ${existingJson}
 4. 主角也放在 characters 列表中
 5. alias 要收集角色在对话中出现的所有称呼、外号、昵称、小名，多个用中文逗号分隔
 6. lifeEvents 提取最近对话中角色发生的重要事件，重点关注因果：谁做了什么，导致这个角色怎么样了。不要重复已有的事件。每个事件必须包含 cause 和 effect 字段
-7. settings 收集对话中提到的重要故事设定（世界观规则、人物关系、历史背景、能力体系等）。同一个设定如果已有则用新信息更新，不要创建重复项`;
+6. items 记录角色当前拥有的物品（身上的、包里的、持有的），要精确追踪物品的增加和减少。角色失去的物品不再列出
+7. lifeEvents 提取最近对话中角色发生的重要事件，重点关注因果：谁做了什么，导致这个角色怎么样了。不要重复已有的事件。每个事件必须包含 cause 和 effect 字段
+8. settings 收集对话中提到的重要故事设定（世界观规则、人物关系、历史背景、能力体系等）。同一个设定如果已有则用新信息更新，不要创建重复项`;
 }
 
 function parseState(raw: string, fallback: StoryState): StoryState {
@@ -213,11 +216,11 @@ function parseState(raw: string, fallback: StoryState): StoryState {
     const existingChars = new Map(fallback.characters.map((c) => [c.name, c]));
     const mergedChars = (Array.isArray(parsed.characters) ? parsed.characters : []).map((c: CharacterInfo) => {
       const existing = existingChars.get(c.name);
-      if (!existing) return { ...c, lifeEvents: c.lifeEvents || [] };
+      if (!existing) return { ...c, lifeEvents: c.lifeEvents || [], items: c.items || [] };
       // merge lifeEvents: keep existing, add new ones not yet present
       const existingEventKeys = new Set(existing.lifeEvents?.map((e) => `${e.date}::${e.description}`) || []);
       const newEvents = (c.lifeEvents || []).filter((e) => !existingEventKeys.has(`${e.date}::${e.description}`));
-      return { ...c, lifeEvents: [...(existing.lifeEvents || []), ...newEvents] };
+      return { ...c, lifeEvents: [...(existing.lifeEvents || []), ...newEvents], items: c.items || existing.items || [] };
     });
 
     return {
