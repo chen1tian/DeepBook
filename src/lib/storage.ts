@@ -313,6 +313,29 @@ export function savePlotSettings(settings: PlotSettings): void {
   }).catch(() => {});
 }
 
+// --- compaction threshold ---
+
+const COMPACTION_KEY = "deepbook_compaction_threshold";
+const DEFAULT_COMPACTION_THRESHOLD = 30;
+
+export function getCompactionThreshold(): number {
+  if (typeof window === "undefined") return DEFAULT_COMPACTION_THRESHOLD;
+  try {
+    const raw = localStorage.getItem(COMPACTION_KEY);
+    if (raw) {
+      const val = parseInt(raw, 10);
+      if (val >= 10 && val <= 100) return val;
+    }
+  } catch { /* */ }
+  return DEFAULT_COMPACTION_THRESHOLD;
+}
+
+export function saveCompactionThreshold(threshold: number): void {
+  if (typeof window === "undefined") return;
+  const clamped = Math.max(10, Math.min(100, threshold));
+  localStorage.setItem(COMPACTION_KEY, String(clamped));
+}
+
 export function getDefaultBaseUrl(provider: ProviderType): string {
   if (provider === "deepseek") return DEEPSEEK_BASE;
   return "https://api.openai.com/v1";

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Users, MapPin, Calendar, User, GitBranch, Ellipsis, Settings, BookOpen } from "lucide-react";
+import { Users, MapPin, Calendar, User, GitBranch, Ellipsis, Settings, BookOpen, ScrollText } from "lucide-react";
 
-export type PanelType = "characters" | "location" | "time" | "protagonist" | "plot" | "settings";
+export type PanelType = "characters" | "location" | "time" | "protagonist" | "plot" | "settings" | "history";
 
 interface Props {
   activePanel: PanelType | null;
@@ -34,6 +34,7 @@ const mainTools: ToolItem[] = [
 const moreTools: ToolItem[] = [
   { type: "plot", icon: GitBranch, label: "剧情", size: 18, isPanel: true, panelType: "plot" },
   { type: "settings", icon: BookOpen, label: "世界设定", size: 18, isPanel: true, panelType: "settings" },
+  { type: "history", icon: ScrollText, label: "历史摘要", size: 18, isPanel: true, panelType: "history" },
   { type: "analysisSettings", icon: Settings, label: "分析设置", size: 18, isPanel: false },
   { type: "plotSettings", icon: Settings, label: "剧情设置", size: 18, isPanel: false },
 ];

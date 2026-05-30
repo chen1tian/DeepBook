@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { getConnectionConfig, getConnections, getAnalysisSettings, getPlotSettings } from "@/lib/storage";
+import { getConnectionConfig, getConnections, getAnalysisSettings, getPlotSettings, getCompactionThreshold } from "@/lib/storage";
 import type { StoryState, CharacterInfo, StorySetting } from "@/lib/story-state-types";
 import type { LocationNetwork } from "@/lib/location-types";
 import StoryStateBar, { type PanelType } from "./StoryStateBar";
@@ -14,6 +14,7 @@ import ProtagonistPanel from "./ProtagonistPanel";
 import AnalysisSettingsPanel from "./AnalysisSettingsPanel";
 import PlotPanel from "./PlotPanel";
 import PlotSettingsPanel from "./PlotSettingsPanel";
+import HistoryPanel from "./HistoryPanel";
 import SettingPanel from "./SettingPanel";
 
 interface DialogueMessage {
@@ -270,6 +271,7 @@ export default function DialogueView({
           baseUrl: config.baseUrl,
           apiKey: config.apiKey,
           modelId: config.modelId,
+          compactionThreshold: getCompactionThreshold(),
         }),
         signal: abortController.signal,
       });
@@ -602,6 +604,7 @@ export default function DialogueView({
           baseUrl: config.baseUrl,
           apiKey: config.apiKey,
           modelId: config.modelId,
+          compactionThreshold: getCompactionThreshold(),
         }),
         signal: abortController.signal,
       });
@@ -1134,6 +1137,11 @@ export default function DialogueView({
         onClose={() => setActivePanel(null)}
         settings={storyState.settings || []}
         onSave={handleSaveSettings}
+      />
+      <HistoryPanel
+        open={activePanel === "history"}
+        onClose={() => setActivePanel(null)}
+        dialogueId={dialogueId}
       />
     </div>
   );

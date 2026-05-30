@@ -40,6 +40,7 @@ export interface DialogueRecord {
   createdAt: string;
   messages: DialogueMessage[];
   config: DialogueConfig | null;
+  compactionSummary?: string;
 }
 
 /* ── file paths ───────────────────────────────────── */
@@ -213,6 +214,13 @@ export function updateMessage(dialogueId: string, componentIndex: number, newCon
   }
 
   return record.messages;
+}
+
+export function updateCompactionSummary(dialogueId: string, summary: string): void {
+  const record = getDialogue(dialogueId);
+  if (!record) return;
+  record.compactionSummary = summary;
+  writeFileSync(dialoguePath(dialogueId), JSON.stringify(record, null, 2), "utf-8");
 }
 
 /** Get a summary of all openings for a book (for reuse) */

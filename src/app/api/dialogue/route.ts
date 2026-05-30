@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { getBook } from "@/lib/db";
-import { getDialogueMessages, getDialogue, appendMessage, deleteMessages, updateMessage } from "@/lib/dialogue-store";
+import { getDialogueMessages, getDialogue, appendMessage, deleteMessages, updateMessage, updateCompactionSummary } from "@/lib/dialogue-store";
 import { getPlotState } from "@/lib/plot-state";
 import { requireUserId } from "@/lib/auth-helper";
 
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   // Return messages excluding system prompt
   const messages = record.messages.filter((m) => m.role !== "system");
-  return new Response(JSON.stringify({ messages, name: record.name }), {
+  return new Response(JSON.stringify({ messages, name: record.name, compactionSummary: record.compactionSummary }), {
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     const userId = await requireUserId();
     if (userId === "NEEDS_SETUP") return new Response("请先完成初始化设置", { status: 400 });
 
-    const { dialogueId, message, baseUrl, apiKey, modelId, regenerate } = await req.json();
+    const { dialogueId, message, baseUrl, apiKey, modelId, regenerate, compactionThreshold } = await req.json();
 
     if (!apiKey) return new Response("API Key is required", { status: 400 });
     if (!modelId) return new Response("Model ID is required", { status: 400 });
@@ -113,11 +113,20 @@ export async function POST(req: NextRequest) {
       llmMessages.push({ role: "system", content: systemContent });
     }
 
-    // Add existing user/assistant history
-    for (const m of record.messages) {
-      if (m.role === "user" || m.role === "assistant") {
-        llmMessages.push({ role: m.role, content: m.content });
-      }
+    // inject compaction summary if present
+    if (record.compactionSummary) {
+      llmMessages.push({ role: "system", content: `[前情提要] ${record.compactionSummary}` });
+    }
+
+    // Add recent user/assistant history (keep last N, older summarized above)
+    const userAssistantMsgs = record.messages.filter((m) => m.role === "user" || m.role === "assistant");
+    const threshold = Math.max(10, Math.min(100, compactionThreshold || 30));
+    const keepRecent = Math.max(5, threshold - 10);
+    const recentMsgs = userAssistantMsgs.length > threshold
+      ? userAssistantMsgs.slice(-keepRecent)
+      : userAssistantMsgs;
+    for (const m of recentMsgs) {
+      llmMessages.push({ role: m.role, content: m.content });
     }
 
     // Append new user message (skip if regenerating)
@@ -152,6 +161,9 @@ export async function POST(req: NextRequest) {
 
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
+
+          // trigger compaction asynchronously (non-blocking)
+          triggerCompaction(dialogueId, client, modelId, threshold).catch(() => {});
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Unknown error";
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
@@ -175,6 +187,38 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
     });
   }
+}
+
+async function triggerCompaction(dialogueId: string, client: OpenAI, modelId: string, threshold: number) {
+  const record = getDialogue(dialogueId);
+  if (!record) return;
+  const userAssistant = record.messages.filter((m) => m.role === "user" || m.role === "assistant");
+  if (userAssistant.length < threshold) return;
+
+  const keepRecent = Math.max(5, threshold - 10);
+  const olderMsgs = userAssistant.slice(0, -keepRecent);
+  const olderText = olderMsgs.map((m) => `${m.role === "user" ? "用户" : "AI"}: ${m.content.slice(0, 800)}`).join("\n");
+  const existingSummary = record.compactionSummary || "";
+
+  const prompt = existingSummary
+    ? `以下是之前的故事进度摘要：\n${existingSummary}\n\n请根据以下新的对话记录，将新内容融入摘要中，更新为一个完整的故事进度摘要（不超过500字）：\n\n${olderText}`
+    : `请根据以下对话记录，生成一个故事进度摘要（不超过500字），包括：已发生的关键事件、角色关系变化、当前未解决的冲突、重要的伏笔：\n\n${olderText}`;
+
+  try {
+    const completion = await client.chat.completions.create({
+      model: modelId,
+      messages: [
+        { role: "system", content: "你是一个故事进度摘要生成器。请简洁地总结故事进展，保留关键事件和因果链。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 600,
+    });
+    const summary = completion.choices[0]?.message?.content?.trim();
+    if (summary) {
+      updateCompactionSummary(dialogueId, summary);
+    }
+  } catch { /* compaction is best-effort */ }
 }
 
 function buildPlotHints(dialogueId: string): string | null {
