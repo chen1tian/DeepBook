@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { X, Upload } from "lucide-react";
 import type { CharacterInfo } from "@/lib/story-state-types";
 
@@ -10,9 +11,50 @@ interface Props {
   onAvatarUpload?: (file: File) => Promise<string | null>;
 }
 
-function avatarUrl(filename: string): string {
-  if (filename === "default" || !filename) return "/avatars/default.png";
+const AVATAR_COLORS = [
+  "bg-rose-500", "bg-orange-500", "bg-amber-500", "bg-emerald-500",
+  "bg-teal-500", "bg-sky-500", "bg-indigo-500", "bg-violet-500",
+  "bg-pink-500", "bg-lime-500", "bg-cyan-500", "bg-fuchsia-500",
+];
+
+function avatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function avatarUrl(filename: string): string | null {
+  if (filename === "default" || !filename) return null;
   return `/api/avatars?file=${filename}`;
+}
+
+function AvatarImage({ char, size }: { char: { name: string; avatar: string }; size: "sm" | "lg" }) {
+  const url = avatarUrl(char.avatar);
+  const dims = size === "lg" ? "h-20 w-20 text-2xl" : "h-10 w-10 text-sm";
+  const [imgKey, setImgKey] = useState(0);
+
+  // Force refresh when avatar filename changes
+  useEffect(() => {
+    setImgKey((k) => k + 1);
+  }, [char.avatar]);
+
+  if (url) {
+    return (
+      <img
+        key={imgKey}
+        src={`${url}&t=${imgKey}`}
+        alt={char.name}
+        className={`${dims} shrink-0 rounded-full object-cover ring-1 ring-white/10`}
+      />
+    );
+  }
+
+  const firstChar = char.name.charAt(0);
+  return (
+    <div className={`${dims} shrink-0 rounded-full ${avatarColor(char.name)} flex items-center justify-center font-bold text-white ring-1 ring-white/10`}>
+      {firstChar}
+    </div>
+  );
 }
 
 export default function ProtagonistPanel({ open, onClose, protagonist, onAvatarUpload }: Props) {
@@ -37,11 +79,7 @@ export default function ProtagonistPanel({ open, onClose, protagonist, onAvatarU
               {/* avatar */}
               <div className="flex flex-col items-center gap-2">
                 <div className="relative group">
-                  <img
-                    src={avatarUrl(protagonist.avatar)}
-                    alt={protagonist.name}
-                    className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
-                  />
+                  <AvatarImage char={protagonist} size="lg" />
                   {onAvatarUpload && (
                     <label className="absolute inset-0 flex cursor-pointer items-center justify-center rounded-full bg-black/50 opacity-0 transition group-hover:opacity-100">
                       <Upload size={16} className="text-white" />

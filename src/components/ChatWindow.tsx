@@ -29,7 +29,9 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
   const [chatId, setChatId] = useState<string | null>(null);
   const chatIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const userScrolledUpRef = useRef(false); // true = 用户已上滑，暂停自动滚动
 
   // Load chat history on mount — each task has its own chatId
   useEffect(() => {
@@ -74,9 +76,20 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
     } catch {}
   }
 
+  // Auto-scroll: only when user hasn't scrolled up
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!userScrolledUpRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
+
+  // Detect user scroll: if scrolled away from bottom, pause auto-scroll
+  function handleMessagesScroll() {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledUpRef.current = distFromBottom > 50;
+  }
 
   // auto-trigger first message when task is set
   useEffect(() => {
@@ -117,6 +130,9 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
   async function sendMessage(text?: string, overrideTask?: string | null) {
     const content = text ?? input.trim();
     if (!content || streaming) return;
+
+    // Reset scroll lock for new response
+    userScrolledUpRef.current = false;
 
     const config = getConnectionConfig();
     if (!config) {
@@ -333,7 +349,7 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
   return (
     <div className="flex h-full flex-col">
       {/* messages */}
-      <div className="flex-1 space-y-3 overflow-y-auto p-3">
+      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 space-y-3 overflow-y-auto p-3">
         {messages.length === 0 && (
           <p className="py-8 text-center text-xs text-zinc-600">
             {task === "create-story"
@@ -380,21 +396,29 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
       </div>
 
       {/* input */}
-      <div className="flex items-center gap-2 border-t border-blue-400/20 p-2">
-        <input
+      <div className="flex items-end gap-2 border-t border-blue-400/20 p-2">
+        <textarea
           ref={inputRef}
-          type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-          placeholder="输入消息..."
-          className="flex-1 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-400/60"
+          onChange={(e) => {
+            setInput(e.target.value);
+            e.target.style.height = "auto";
+            e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px";
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              // Allow default newline behavior
+            }
+          }}
+          placeholder="输入消息... (Enter 换行)"
+          rows={1}
+          className="flex-1 resize-none rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-400/60"
           disabled={streaming}
         />
         <button
           onClick={() => sendMessage()}
           disabled={streaming || !input.trim()}
-          className="rounded-lg p-2 text-zinc-400 transition hover:bg-blue-500/15 hover:text-blue-400 disabled:opacity-30"
+          className="shrink-0 rounded-lg p-2 text-zinc-400 transition hover:bg-blue-500/15 hover:text-blue-400 disabled:opacity-30"
         >
           <Send size={16} />
         </button>
