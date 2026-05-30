@@ -5,6 +5,7 @@ import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Setting
 import ReactMarkdown from "react-markdown";
 import { getConnectionConfig, getConnections, getAnalysisSettings, getPlotSettings } from "@/lib/storage";
 import type { StoryState, CharacterInfo, StorySetting } from "@/lib/story-state-types";
+import type { LocationNetwork } from "@/lib/location-types";
 import StoryStateBar, { type PanelType } from "./StoryStateBar";
 import CharacterPanel from "./CharacterPanel";
 import LocationPanel from "./LocationPanel";
@@ -66,6 +67,7 @@ export default function DialogueView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const analyzingRef = useRef(false);
+  const locationAnalyzingRef = useRef(false);
   const userScrolledUpRef = useRef(false); // true = 用户已上滑，暂停自动滚动
   const prevScrollTopRef = useRef(0);
 
@@ -84,6 +86,12 @@ export default function DialogueView({
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [plotSettingsOpen, setPlotSettingsOpen] = useState(false);
   const [hasPlotData, setHasPlotData] = useState(false);
+  const [locationNetwork, setLocationNetwork] = useState<LocationNetwork>({
+    nodes: [],
+    connections: [],
+    currentNodeId: null,
+    lastAnalyzedAt: "",
+  });
   const plotStateRef = useRef<{ plotLines: { id: string; title: string; status: string }[] }>({ plotLines: [] });
 
   // Load dialogue list
@@ -139,6 +147,15 @@ export default function DialogueView({
           if (data.state) setStoryState(data.state);
         }
       } catch { /* */ }
+
+      // Also load location network
+      try {
+        const locRes = await fetch(`/api/locations?dialogueId=${dialogueId}`);
+        if (locRes.ok) {
+          const locData = await locRes.json();
+          if (locData.network) setLocationNetwork(locData.network);
+        }
+      } catch { /* */ }
     }
     load();
   }, [dialogueId]);
@@ -153,6 +170,19 @@ export default function DialogueView({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dialogueId, state: updated }),
+      });
+    } catch { /* */ }
+  }
+
+  // Save location network to server
+  async function handleSaveLocations(network: LocationNetwork) {
+    if (!dialogueId) return;
+    setLocationNetwork(network);
+    try {
+      await fetch("/api/locations", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dialogueId, network }),
       });
     } catch { /* */ }
   }
@@ -284,6 +314,7 @@ export default function DialogueView({
       setStreaming(false);
       fetchList();
       triggerAnalysis();
+      triggerLocationAnalysis();
       triggerPlotAnalysis();
       triggerPlotGeneration();
     }
@@ -387,6 +418,39 @@ export default function DialogueView({
       }
     } catch { /* */ }
     analyzingRef.current = false;
+  }
+
+  // Dedicated location network analysis — independent request
+  async function triggerLocationAnalysis() {
+    if (!dialogueId || locationAnalyzingRef.current) return;
+    const settings = getAnalysisSettings();
+    let config = getConnectionConfig();
+    if (settings.connectionId) {
+      const conns = getConnections();
+      const picked = conns.find((c) => c.id === settings.connectionId);
+      if (picked) config = picked;
+    }
+    if (!config) return;
+
+    locationAnalyzingRef.current = true;
+    try {
+      const locRes = await fetch("/api/locations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dialogueId,
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          modelId: config.modelId,
+          messageCount: settings.messageCount,
+        }),
+      });
+      if (locRes.ok) {
+        const locData = await locRes.json();
+        if (locData.network) setLocationNetwork(locData.network);
+      }
+    } catch { /* */ }
+    locationAnalyzingRef.current = false;
   }
 
   async function triggerPlotAnalysis() {
@@ -585,6 +649,7 @@ export default function DialogueView({
       setStreaming(false);
       fetchList();
       triggerAnalysis();
+      triggerLocationAnalysis();
       triggerPlotAnalysis();
       triggerPlotGeneration();
     }
@@ -642,7 +707,7 @@ export default function DialogueView({
           <StoryStateBar
             activePanel={activePanel}
             onOpenPanel={togglePanel}
-            hasData={storyState.characters.length > 0 || !!storyState.protagonist || !!storyState.currentLocation}
+            hasData={storyState.characters.length > 0 || !!storyState.protagonist || !!storyState.currentLocation || locationNetwork.nodes.length > 0}
             hasPlotData={hasPlotData}
             hasSettingsData={(storyState.settings || []).length > 0}
             onOpenAnalysisSettings={() => setSettingsPanelOpen(true)}
@@ -1036,7 +1101,8 @@ export default function DialogueView({
       <LocationPanel
         open={activePanel === "location"}
         onClose={() => setActivePanel(null)}
-        value={storyState.currentLocation}
+        network={locationNetwork}
+        onSave={handleSaveLocations}
       />
       <TimePanel
         open={activePanel === "time"}
