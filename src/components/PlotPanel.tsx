@@ -142,7 +142,7 @@ export default function PlotPanel({ open, onClose, dialogueId }: Props) {
             )}
           </div>
           <div className="flex items-center gap-1">
-            {spoiler && hasData && <EyeOff size={13} className="text-zinc-600" title="防剧透已启用" />}
+            {spoiler && hasData && <EyeOff size={13} className="text-zinc-600" aria-label="防剧透已启用" />}
             <button onClick={onClose} className="rounded p-1 text-zinc-500 hover:text-zinc-300">
               <X size={16} />
             </button>

@@ -6,7 +6,7 @@ import ReactMarkdown from "react-markdown";
 import { getConnectionConfig } from "@/lib/storage";
 
 interface Message {
-  role: "user" | "assistant" | "tool";
+  role: "user" | "assistant" | "tool" | "system";
   content: string;
 }
 
