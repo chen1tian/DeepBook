@@ -34,6 +34,7 @@ export interface DialogueMeta {
 
 export interface DialogueRecord {
   id: string;
+  userId: string;
   bookId: number;
   name: string;
   createdAt: string;
@@ -93,8 +94,11 @@ function componentToFileIndex(record: DialogueRecord, componentIndex: number): n
   return -1;
 }
 
-export function listDialogues(bookId: number): DialogueMeta[] {
-  return readIndex(bookId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export function listDialogues(bookId: number, userId: string): DialogueMeta[] {
+  return readIndex(bookId).filter((m) => {
+    const rec = getDialogue(m.id);
+    return rec && rec.userId === userId;
+  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export function getDialogue(dialogueId: string): DialogueRecord | null {
@@ -111,6 +115,7 @@ export function getDialogueMessages(dialogueId: string): DialogueMessage[] {
 
 export function createDialogue(
   bookId: number,
+  userId: string,
   name: string,
   messages: DialogueMessage[],
   config: DialogueConfig | null
@@ -118,6 +123,7 @@ export function createDialogue(
   const id = generateId();
   const record: DialogueRecord = {
     id,
+    userId,
     bookId,
     name,
     createdAt: new Date().toISOString(),
@@ -210,11 +216,12 @@ export function updateMessage(dialogueId: string, componentIndex: number, newCon
 }
 
 /** Get a summary of all openings for a book (for reuse) */
-export function getOpeningOptions(bookId: number): { dialogueId: string; name: string; opening: string }[] {
+export function getOpeningOptions(bookId: number, userId: string): { dialogueId: string; name: string; opening: string }[] {
   const metas = readIndex(bookId).filter((m) => m.hasConfig);
   return metas.map((m) => {
     const record = getDialogue(m.id);
+    if (!record || record.userId !== userId) return null;
     const opening = record?.messages.find((msg) => msg.role === "assistant")?.content || "";
     return { dialogueId: m.id, name: m.name, opening };
-  });
+  }).filter((x): x is { dialogueId: string; name: string; opening: string } => x !== null);
 }

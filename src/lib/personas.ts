@@ -6,6 +6,7 @@ const PERSONAS_FILE = join(DATA_DIR, "personas.json");
 
 export interface Persona {
   id: string;
+  userId: string;
   name: string;
   avatar: string;
   tone: string;
@@ -35,33 +36,43 @@ function genId(): string {
   return `persona_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export function listPersonas(): Persona[] {
-  return readAll().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export function listPersonas(userId: string): Persona[] {
+  const personas = readAll().filter((p) => p.userId === userId);
+  // 向后兼容：旧数据无 userId，自动迁移
+  const all = readAll();
+  if (all.some((p) => !p.userId)) {
+    for (const p of all) {
+      if (!p.userId) (p as Persona).userId = userId;
+    }
+    writeAll(all);
+    return all.filter((p) => p.userId === userId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  return personas.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function getPersona(id: string): Persona | null {
-  return readAll().find((p) => p.id === id) ?? null;
+export function getPersona(id: string, userId: string): Persona | null {
+  return readAll().find((p) => p.id === id && p.userId === userId) ?? null;
 }
 
-export function createPersona(data: Omit<Persona, "id" | "createdAt">): Persona {
+export function createPersona(data: Omit<Persona, "id" | "createdAt" | "userId">, userId: string): Persona {
   const personas = readAll();
-  const persona: Persona = { id: genId(), ...data, createdAt: new Date().toISOString() };
+  const persona: Persona = { id: genId(), userId, ...data, createdAt: new Date().toISOString() };
   personas.push(persona);
   writeAll(personas);
   return persona;
 }
 
-export function updatePersona(id: string, patch: Partial<Persona>): Persona | null {
+export function updatePersona(id: string, userId: string, patch: Partial<Persona>): Persona | null {
   const personas = readAll();
-  const idx = personas.findIndex((p) => p.id === id);
+  const idx = personas.findIndex((p) => p.id === id && p.userId === userId);
   if (idx === -1) return null;
   personas[idx] = { ...personas[idx], ...patch, id };
   writeAll(personas);
   return personas[idx];
 }
 
-export function deletePersona(id: string): boolean {
-  const personas = readAll().filter((p) => p.id !== id);
+export function deletePersona(id: string, userId: string): boolean {
+  const personas = readAll().filter((p) => !(p.id === id && p.userId === userId));
   if (personas.length === readAll().length) return false;
   writeAll(personas);
   return true;

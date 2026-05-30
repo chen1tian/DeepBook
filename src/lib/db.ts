@@ -21,6 +21,7 @@ export interface DialogueConfig {
 
 export interface Book {
   id: number;
+  userId: string;
   name: string;
   genre: string;
   style: string;
@@ -59,24 +60,47 @@ function getNextId(): number {
   return ++nextId;
 }
 
-export async function getBooks(): Promise<Book[]> {
-  return readBooks().sort((a, b) => b.id - a.id);
+export async function getBooks(userId: string): Promise<Book[]> {
+  const books = readBooks().filter((b) => b.userId === userId);
+  // 向后兼容：旧数据无 userId，自动迁移
+  const needsMigration = readBooks().some((b) => !b.userId);
+  if (needsMigration) {
+    migrateBooks(userId);
+    return readBooks().filter((b) => b.userId === userId).sort((a, b) => b.id - a.id);
+  }
+  return books.sort((a, b) => b.id - a.id);
 }
 
-export async function getBook(id: number): Promise<Book | null> {
-  return readBooks().find((b) => b.id === id) ?? null;
+function migrateBooks(defaultUserId: string) {
+  const all = readBooks();
+  let changed = false;
+  for (const b of all) {
+    if (!b.userId) {
+      (b as Book).userId = defaultUserId;
+      changed = true;
+    }
+  }
+  if (changed) writeBooks(all);
 }
 
-export async function createBook(book: {
-  name: string;
-  genre: string;
-  style: string;
-  system_prompt: string;
-  cover_color?: string;
-}): Promise<Book> {
+export async function getBook(id: number, userId: string): Promise<Book | null> {
+  return readBooks().find((b) => b.id === id && b.userId === userId) ?? null;
+}
+
+export async function createBook(
+  book: {
+    name: string;
+    genre: string;
+    style: string;
+    system_prompt: string;
+    cover_color?: string;
+  },
+  userId: string
+): Promise<Book> {
   const books = readBooks();
   const newBook: Book = {
     id: getNextId(),
+    userId,
     name: book.name,
     genre: book.genre,
     style: book.style,
@@ -91,17 +115,17 @@ export async function createBook(book: {
   return newBook;
 }
 
-export async function updateBook(id: number, patch: Partial<Book>): Promise<Book | null> {
+export async function updateBook(id: number, userId: string, patch: Partial<Book>): Promise<Book | null> {
   const books = readBooks();
-  const idx = books.findIndex((b) => b.id === id);
+  const idx = books.findIndex((b) => b.id === id && b.userId === userId);
   if (idx === -1) return null;
   books[idx] = { ...books[idx], ...patch };
   writeBooks(books);
   return books[idx];
 }
 
-export async function deleteBook(id: number): Promise<void> {
-  const books = readBooks().filter((b) => b.id !== id);
+export async function deleteBook(id: number, userId: string): Promise<void> {
+  const books = readBooks().filter((b) => !(b.id === id && b.userId === userId));
   writeBooks(books);
 }
 

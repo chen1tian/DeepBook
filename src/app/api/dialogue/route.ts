@@ -3,14 +3,22 @@ import OpenAI from "openai";
 import { getBook } from "@/lib/db";
 import { getDialogueMessages, getDialogue, appendMessage, deleteMessages, updateMessage } from "@/lib/dialogue-store";
 import { getPlotState } from "@/lib/plot-state";
+import { requireUserId } from "@/lib/auth-helper";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const dialogueId = searchParams.get("dialogueId");
   if (!dialogueId) return new Response("dialogueId is required", { status: 400 });
 
+  const userId = await requireUserId();
+  if (userId === "NEEDS_SETUP") return new Response("请先完成初始化设置", { status: 400 });
+
   const record = getDialogue(dialogueId);
   if (!record) return new Response("Dialogue not found", { status: 404 });
+  // 验证所有权（多用户模式下）
+  if (record.userId && record.userId !== userId) {
+    return new Response("Access denied", { status: 403 });
+  }
 
   // Return messages excluding system prompt
   const messages = record.messages.filter((m) => m.role !== "system");
@@ -21,13 +29,20 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const userId = await requireUserId();
+    if (userId === "NEEDS_SETUP") return new Response("请先完成初始化设置", { status: 400 });
     const { dialogueId, indices } = await req.json();
     if (!dialogueId || !indices) return new Response("dialogueId and indices required", { status: 400 });
+    // verify ownership
+    const record = getDialogue(dialogueId);
+    if (!record) return new Response("Dialogue not found", { status: 404 });
+    if (record.userId && record.userId !== userId) return new Response("Access denied", { status: 403 });
     const messages = deleteMessages(dialogueId, indices);
     return new Response(JSON.stringify({ messages }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
+    if (err instanceof Response) throw err;
     const msg = err instanceof Error ? err.message : "Unknown error";
     return new Response(JSON.stringify({ error: msg }), { status: 500 });
   }
@@ -35,15 +50,22 @@ export async function DELETE(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const userId = await requireUserId();
+    if (userId === "NEEDS_SETUP") return new Response("请先完成初始化设置", { status: 400 });
     const { dialogueId, index, content } = await req.json();
     if (!dialogueId || index === undefined || !content) {
       return new Response("dialogueId, index, content are required", { status: 400 });
     }
+    // verify ownership
+    const record = getDialogue(dialogueId);
+    if (!record) return new Response("Dialogue not found", { status: 404 });
+    if (record.userId && record.userId !== userId) return new Response("Access denied", { status: 403 });
     const messages = updateMessage(dialogueId, index, content);
     return new Response(JSON.stringify({ messages }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
+    if (err instanceof Response) throw err;
     const msg = err instanceof Error ? err.message : "Unknown error";
     return new Response(JSON.stringify({ error: msg }), { status: 500 });
   }
@@ -51,6 +73,9 @@ export async function PATCH(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = await requireUserId();
+    if (userId === "NEEDS_SETUP") return new Response("请先完成初始化设置", { status: 400 });
+
     const { dialogueId, message, baseUrl, apiKey, modelId, regenerate } = await req.json();
 
     if (!apiKey) return new Response("API Key is required", { status: 400 });
@@ -59,6 +84,10 @@ export async function POST(req: NextRequest) {
 
     const record = getDialogue(dialogueId);
     if (!record) return new Response("Dialogue not found", { status: 404 });
+    // 验证所有权
+    if (record.userId && record.userId !== userId) {
+      return new Response("Access denied", { status: 403 });
+    }
 
     const client = new OpenAI({ apiKey, baseURL: baseUrl.replace(/\/$/, "") });
 

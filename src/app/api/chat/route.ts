@@ -4,6 +4,7 @@ import { createBook, getBook, getBooks, updateBook } from "@/lib/db";
 import { createDialogue, getDialogue, getOpeningOptions } from "@/lib/dialogue-store";
 import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
+import { requireUserId } from "@/lib/auth-helper";
 
 /* ── tools ─────────────────────────────────────────── */
 
@@ -363,17 +364,27 @@ function buildTools(task: string | null, bookId?: number) {
     list.push(REUSE_OPENING_TOOL, START_DIALOGUE_TOOL, SAVE_PROTAGONIST_TOOL);
   if (task === "edit-preset")
     list.push(UPDATE_PRESET_TOOL, CREATE_PRESET_TOOL);
-  // these are always available
-  list.push(CREATE_BOOK_TOOL, LIST_BOOKS_TOOL);
-  list.push(CLOSE_DIALOGUE_TOOL);
-  list.push(LIST_PRESETS_TOOL, UPDATE_PRESET_TOOL, CREATE_PRESET_TOOL);
-  list.push(LIST_PERSONAS_TOOL, CREATE_PERSONA_TOOL, UPDATE_PERSONA_TOOL);
-  list.push(READ_FILE_TOOL, LIST_DIR_TOOL, SEARCH_FILES_TOOL, WRITE_FILE_TOOL);
+  // these are always available (deduplicate by name)
+  const always = [
+    CREATE_BOOK_TOOL, LIST_BOOKS_TOOL,
+    CLOSE_DIALOGUE_TOOL,
+    LIST_PRESETS_TOOL, UPDATE_PRESET_TOOL, CREATE_PRESET_TOOL,
+    LIST_PERSONAS_TOOL, CREATE_PERSONA_TOOL, UPDATE_PERSONA_TOOL,
+    READ_FILE_TOOL, LIST_DIR_TOOL, SEARCH_FILES_TOOL, WRITE_FILE_TOOL,
+  ];
+  const seen = new Set(list.map((t) => t.function.name));
+  for (const t of always) {
+    if (!seen.has(t.function.name)) {
+      list.push(t);
+      seen.add(t.function.name);
+    }
+  }
   return list.length > 0 ? list : undefined;
 }
 
 function buildSystemPrompt(
   task: string | null,
+  userId: string,
   bookId?: number,
   contextBook?: { id?: number; name: string; genre: string; style: string },
   contextPersona?: { name: string; avatar: string; tone: string; addressUser: string; style: string; catchphrase: string }
@@ -403,7 +414,7 @@ ${contextPersona.catchphrase ? `- **口头禅**：${contextPersona.catchphrase}`
     if (skill) return `${base}\n\n---\n\n## 当前任务：编辑预设\n\n${skill}`;
   }
   if (task === "new-dialogue" && bookId) {
-    const openings = getOpeningOptions(bookId);
+    const openings = getOpeningOptions(bookId, userId);
     let openingList = "";
     if (openings.length > 0) {
       openingList = openings
@@ -447,6 +458,7 @@ ${contextPersona.catchphrase ? `- **口头禅**：${contextPersona.catchphrase}`
 async function executeToolCall(
   name: string,
   args: Record<string, unknown>,
+  userId: string,
   bookId?: number
 ): Promise<{ success: boolean; [key: string]: unknown }> {
   switch (name) {
@@ -456,7 +468,7 @@ async function executeToolCall(
         genre: args.genre as string,
         style: args.style as string,
         system_prompt: (args.system_prompt as string) || "",
-      });
+      }, userId);
       return { success: true, book };
     }
     case "start_dialogue": {
@@ -474,16 +486,16 @@ async function executeToolCall(
         dialogue_system_prompt: args.dialogue_system_prompt as string,
       };
       const name = `对话 - ${new Date().toLocaleString("zh-CN")}`;
-      const dialogue = createDialogue(bookId, name, [
+      const dialogue = createDialogue(bookId, userId, name, [
         { role: "system", content: config.dialogue_system_prompt },
         { role: "assistant", content: args.opening as string },
       ], config);
-      await updateBook(bookId, { active_dialogue_id: dialogue.id, dialogue_config: config });
+      await updateBook(bookId, userId, { active_dialogue_id: dialogue.id, dialogue_config: config });
       return { success: true, dialogueId: dialogue.id, bookId };
     }
     case "save_protagonist": {
       if (!bookId) return { success: false, error: "bookId is required" };
-      const book = await getBook(bookId);
+      const book = await getBook(bookId, userId);
       if (!book?.dialogue_config) return { success: false, error: "No dialogue config" };
       const updatedConfig = {
         ...book.dialogue_config,
@@ -492,7 +504,7 @@ async function executeToolCall(
           description: args.description as string,
         },
       };
-      await updateBook(bookId, { dialogue_config: updatedConfig });
+      await updateBook(bookId, userId, { dialogue_config: updatedConfig });
       return { success: true };
     }
     case "reuse_opening": {
@@ -500,17 +512,18 @@ async function executeToolCall(
       const sourceId = args.source_dialogue_id as string;
       const source = getDialogue(sourceId);
       if (!source) return { success: false, error: "Source dialogue not found" };
+      if (source.userId && source.userId !== userId) return { success: false, error: "Access denied" };
       if (!source.config) return { success: false, error: "Source dialogue has no config" };
       const name = `对话 - ${new Date().toLocaleString("zh-CN")}`;
-      const dialogue = createDialogue(bookId, name, [
+      const dialogue = createDialogue(bookId, userId, name, [
         { role: "system", content: source.config.dialogue_system_prompt },
         { role: "assistant", content: source.messages.find((m) => m.role === "assistant")?.content || "" },
       ], source.config);
-      await updateBook(bookId, { active_dialogue_id: dialogue.id, dialogue_config: source.config });
+      await updateBook(bookId, userId, { active_dialogue_id: dialogue.id, dialogue_config: source.config });
       return { success: true, dialogueId: dialogue.id, bookId };
     }
     case "list_books": {
-      const books = await getBooks();
+      const books = await getBooks(userId);
       const slim = books.slice(0, 10).map((b) => ({
         id: b.id,
         name: b.name,
@@ -522,12 +535,12 @@ async function executeToolCall(
     }
     case "list_presets": {
       const { listPresets } = await import("@/lib/presets");
-      const presets = listPresets();
+      const presets = listPresets(userId);
       return { success: true, presets };
     }
     case "update_preset": {
-      const { createPreset, updatePreset } = await import("@/lib/presets");
-      const updated = updatePreset(args.preset_id as string, {
+      const { updatePreset } = await import("@/lib/presets");
+      const updated = updatePreset(args.preset_id as string, userId, {
         ...(args.name ? { name: args.name as string } : {}),
         ...(args.mode ? { mode: args.mode as "novel" | "roleplay" } : {}),
         ...(args.pov ? { pov: args.pov as "first" | "third" } : {}),
@@ -544,7 +557,7 @@ async function executeToolCall(
         pov: args.pov as "first" | "third",
         role: args.role as string,
         rules: args.rules as string,
-      });
+      }, userId);
       return { success: true, preset };
     }
     case "create_persona": {
@@ -556,12 +569,12 @@ async function executeToolCall(
         addressUser: (args.addressUser as string) || "你",
         style: (args.style as string) || "",
         catchphrase: (args.catchphrase as string) || "",
-      });
+      }, userId);
       return { success: true, persona };
     }
     case "update_persona": {
       const { updatePersona } = await import("@/lib/personas");
-      const updated = updatePersona(args.persona_id as string, {
+      const updated = updatePersona(args.persona_id as string, userId, {
         ...(args.name ? { name: args.name as string } : {}),
         ...(args.avatar ? { avatar: args.avatar as string } : {}),
         ...(args.tone !== undefined ? { tone: args.tone as string } : {}),
@@ -573,7 +586,7 @@ async function executeToolCall(
     }
     case "list_personas": {
       const { listPersonas } = await import("@/lib/personas");
-      const personas = listPersonas();
+      const personas = listPersonas(userId);
       return { success: true, personas };
     }
     case "read_file": {
@@ -650,7 +663,7 @@ async function executeToolCall(
     }
     case "close_dialogue": {
       if (bookId) {
-        await updateBook(bookId, { active_dialogue_id: null });
+        await updateBook(bookId, userId, { active_dialogue_id: null });
       }
       return { success: true, action: "close_dialogue" };
     }
@@ -663,14 +676,33 @@ async function executeToolCall(
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = await requireUserId();
+    if (userId === "NEEDS_SETUP") {
+      return new Response(JSON.stringify({ error: "请先完成初始化设置" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const { messages, baseUrl, apiKey, modelId, task, bookId, contextBook, contextPersona } = await req.json();
 
     if (!apiKey) return new Response("API Key is required", { status: 400 });
     if (!modelId) return new Response("Model ID is required", { status: 400 });
 
+    // 如果指定了 bookId，验证该书属于当前用户
+    if (bookId) {
+      const book = await getBook(bookId, userId);
+      if (!book) {
+        return new Response(JSON.stringify({ error: "Book not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const client = new OpenAI({ apiKey, baseURL: baseUrl.replace(/\/$/, "") });
 
-    const systemContent = buildSystemPrompt(task, bookId, contextBook, contextPersona);
+    const systemContent = buildSystemPrompt(task, userId, bookId, contextBook, contextPersona);
     const tools = buildTools(task, bookId);
 
     const llmMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -752,7 +784,7 @@ export async function POST(req: NextRequest) {
             for (const [, tc] of toolCalls) {
               try {
                 const args = JSON.parse(tc.args);
-                const result = await executeToolCall(tc.name, args, bookId);
+                const result = await executeToolCall(tc.name, args, userId, bookId);
 
                 controller.enqueue(
                   encoder.encode(

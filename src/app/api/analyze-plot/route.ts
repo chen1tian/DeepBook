@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { getDialogue } from "@/lib/dialogue-store";
 import { getPlotState, savePlotState, getDefaultPlotState, type PlotState } from "@/lib/plot-state";
+import { requireUserId } from "@/lib/auth-helper";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,6 +13,13 @@ export async function POST(req: NextRequest) {
 
     const record = getDialogue(dialogueId);
     if (!record) return new Response(JSON.stringify({ error: "Dialogue not found" }), { status: 404 });
+
+    // 验证所有权
+    const userId = await requireUserId();
+    if (userId === "NEEDS_SETUP") return new Response(JSON.stringify({ error: "请先完成初始化设置" }), { status: 400 });
+    if (record.userId && record.userId !== userId) {
+      return new Response(JSON.stringify({ error: "Access denied" }), { status: 403 });
+    }
 
     const plotState = getPlotState(dialogueId);
     if (plotState.plotLines.length === 0) {

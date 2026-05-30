@@ -190,7 +190,12 @@ export default function DialogueView({
     abortRef.current = abortController;
 
     const config = getConnectionConfig();
-    if (!config) return;
+    if (!config) {
+      if (typeof window !== "undefined" && window.confirm("尚未配置 API 连接，是否现在设置？")) {
+        window.dispatchEvent(new CustomEvent("deepbook:open-connection"));
+      }
+      return;
+    }
 
     const assistantMsg: DialogueMessage = { role: "assistant", content: "" };
     setMessages((prev) => [...prev, assistantMsg]);
@@ -473,7 +478,12 @@ export default function DialogueView({
     if (!dialogueId) return;
 
     const config = getConnectionConfig();
-    if (!config) return;
+    if (!config) {
+      if (typeof window !== "undefined" && window.confirm("尚未配置 API 连接，是否现在设置？")) {
+        window.dispatchEvent(new CustomEvent("deepbook:open-connection"));
+      }
+      return;
+    }
 
     setInput("");
     setStreaming(true);

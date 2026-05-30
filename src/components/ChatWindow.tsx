@@ -120,7 +120,9 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
 
     const config = getConnectionConfig();
     if (!config) {
-      setError("请先配置连接");
+      if (typeof window !== "undefined" && window.confirm("尚未配置 API 连接，是否现在设置？")) {
+        window.dispatchEvent(new CustomEvent("deepbook:open-connection"));
+      }
       return;
     }
 

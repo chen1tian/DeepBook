@@ -12,6 +12,9 @@ import {
   setDefaultConnection,
   duplicateConnection,
   getDefaultBaseUrl,
+  saveConnectionToServer,
+  deleteConnectionFromServer,
+  setDefaultConnectionOnServer,
 } from "@/lib/storage";
 
 interface Props {
@@ -137,14 +140,16 @@ export default function ConnectionDialog({ open, onClose }: Props) {
       setError("请选择一个模型");
       return;
     }
-    saveConnection({
+    const config: ConnectionConfig = {
       id: editingId || "",
       name,
       provider,
       baseUrl: baseUrl.trim(),
       apiKey: apiKey.trim(),
       modelId: selectedModel,
-    });
+    };
+    saveConnection(config);
+    saveConnectionToServer(config); // 同步到服务端
     handleCancelForm();
   }
 
@@ -157,18 +162,23 @@ export default function ConnectionDialog({ open, onClose }: Props) {
       return;
     }
     deleteConnection(id);
+    deleteConnectionFromServer(id); // 同步到服务端
     refreshConnections();
     window.dispatchEvent(new CustomEvent("deepbook:connection-changed"));
   }
 
   function handleSetDefault(id: string) {
     setDefaultConnection(id);
+    setDefaultConnectionOnServer(id); // 同步到服务端
     refreshConnections();
     window.dispatchEvent(new CustomEvent("deepbook:connection-changed"));
   }
 
   function handleDuplicate(id: string) {
-    duplicateConnection(id);
+    const dup = duplicateConnection(id);
+    if (dup) {
+      saveConnectionToServer(dup); // 同步到服务端
+    }
     refreshConnections();
     window.dispatchEvent(new CustomEvent("deepbook:connection-changed"));
   }

@@ -11,6 +11,7 @@ export interface AgentMessage {
 
 export interface AgentChatRecord {
   id: string;
+  userId: string;
   messages: AgentMessage[];
   updatedAt: string;
   compacted: boolean; // true if history was compressed
@@ -28,11 +29,21 @@ export function generateChatId(): string {
   return `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function loadChat(chatId: string): AgentChatRecord | null {
+export function loadChat(chatId: string, userId?: string): AgentChatRecord | null {
   ensureDir();
   const fp = filePath(chatId);
   if (!existsSync(fp)) return null;
-  try { return JSON.parse(readFileSync(fp, "utf-8")) as AgentChatRecord; }
+  try {
+    const record = JSON.parse(readFileSync(fp, "utf-8")) as AgentChatRecord;
+    // 向后兼容：加载后补 userId
+    if (!record.userId && userId) {
+      record.userId = userId;
+      saveChat(record);
+    }
+    // 可选 userId 过滤
+    if (userId && record.userId && record.userId !== userId) return null;
+    return record;
+  }
   catch { return null; }
 }
 
@@ -42,9 +53,10 @@ export function saveChat(record: AgentChatRecord): void {
   writeFileSync(filePath(record.id), JSON.stringify(record, null, 2), "utf-8");
 }
 
-export function createChat(): AgentChatRecord {
+export function createChat(userId?: string): AgentChatRecord {
   const record: AgentChatRecord = {
     id: generateChatId(),
+    userId: userId || "",
     messages: [],
     updatedAt: new Date().toISOString(),
     compacted: false,

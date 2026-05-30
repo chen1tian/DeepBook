@@ -2,11 +2,21 @@ import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { getDialogue } from "@/lib/dialogue-store";
 import { getStoryState, saveStoryState, getDefaultStoryState, type StoryState } from "@/lib/story-state";
+import { requireUserId } from "@/lib/auth-helper";
 
 // GET — load existing story state
 export async function GET(req: NextRequest) {
   const dialogueId = req.nextUrl.searchParams.get("dialogueId");
   if (!dialogueId) return new Response("dialogueId is required", { status: 400 });
+
+  const record = getDialogue(dialogueId);
+  if (!record) return new Response(JSON.stringify({ error: "Dialogue not found" }), { status: 404 });
+
+  const userId = await requireUserId();
+  if (userId === "NEEDS_SETUP") return new Response(JSON.stringify({ error: "请先完成初始化设置" }), { status: 400 });
+  if (record.userId && record.userId !== userId) {
+    return new Response(JSON.stringify({ error: "Access denied" }), { status: 403 });
+  }
 
   const state = getStoryState(dialogueId);
   return new Response(JSON.stringify({ state }), {
@@ -27,6 +37,13 @@ export async function POST(req: NextRequest) {
 
     const record = getDialogue(dialogueId);
     if (!record) return new Response(JSON.stringify({ error: "Dialogue not found" }), { status: 404 });
+
+    // 验证所有权
+    const userId = await requireUserId();
+    if (userId === "NEEDS_SETUP") return new Response(JSON.stringify({ error: "请先完成初始化设置" }), { status: 400 });
+    if (record.userId && record.userId !== userId) {
+      return new Response(JSON.stringify({ error: "Access denied" }), { status: 403 });
+    }
 
     // get existing state for incremental update
     const existingState = getStoryState(dialogueId);

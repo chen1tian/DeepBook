@@ -3,14 +3,25 @@
 import { useState, useEffect } from "react";
 import { Plug, Sliders } from "lucide-react";
 import { getConnectionConfig } from "@/lib/storage";
+import AccountPanel from "@/components/AccountPanel";
+import type { AuthUser } from "@/lib/auth-context";
 
 interface Props {
   onOpenConnection: () => void;
   onOpenPresets: () => void;
   showPresets: boolean;
+  onOpenPersonas: () => void;
+  showPersonas: boolean;
+  user: AuthUser | null;
+  multiUser: boolean;
+  onLogout: () => Promise<void>;
 }
 
-export default function Toolbar({ onOpenConnection, onOpenPresets, showPresets }: Props) {
+export default function Toolbar({
+  onOpenConnection, onOpenPresets, showPresets,
+  onOpenPersonas, showPersonas,
+  user, multiUser, onLogout,
+}: Props) {
   const [connName, setConnName] = useState("");
 
   useEffect(() => {
@@ -43,6 +54,10 @@ export default function Toolbar({ onOpenConnection, onOpenPresets, showPresets }
         </button>
       </div>
       <div className="flex-1" />
+      {/* 账户面板（多用户模式下可见） */}
+      {multiUser && user && (
+        <AccountPanel user={user} onLogout={onLogout} />
+      )}
     </header>
   );
 }

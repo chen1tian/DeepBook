@@ -2,6 +2,7 @@
 
 const STORAGE_KEY = "deepbook_connections";
 const LEGACY_KEY = "deepbook_connection";
+const USER_ID_KEY = "deepbook_current_user_id";
 
 export type ProviderType = "openai" | "deepseek";
 
@@ -21,12 +22,46 @@ function generateId(): string {
   return `conn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** 设置当前用户 ID，用于连接配置隔离 */
+export function setStorageUserId(userId: string | null): void {
+  if (typeof window === "undefined") return;
+  if (userId) {
+    localStorage.setItem(USER_ID_KEY, userId);
+  } else {
+    localStorage.removeItem(USER_ID_KEY);
+  }
+}
+
+/** 获取当前用户 ID */
+export function getStorageUserId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(USER_ID_KEY);
+}
+
+/** 获取当前用户的连接存储键 */
+function getConnectionsKey(): string {
+  const uid = getStorageUserId();
+  return uid ? `deepbook_connections_${uid}` : STORAGE_KEY;
+}
+
 function readAll(): ConnectionConfig[] {
   if (typeof window === "undefined") return [];
+  const key = getConnectionsKey();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (raw) return JSON.parse(raw) as ConnectionConfig[];
   } catch { /* */ }
+  // 如果新 key 无数据，尝试从旧 key 迁移
+  if (key !== STORAGE_KEY) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const migrated = JSON.parse(raw) as ConnectionConfig[];
+        localStorage.setItem(key, JSON.stringify(migrated));
+        return migrated;
+      }
+    } catch { /* */ }
+  }
   // migrate legacy single connection
   try {
     const legacy = localStorage.getItem(LEGACY_KEY);
@@ -42,7 +77,7 @@ function readAll(): ConnectionConfig[] {
         isDefault: true,
       };
       localStorage.removeItem(LEGACY_KEY);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([migrated]));
+      localStorage.setItem(key, JSON.stringify([migrated]));
       return [migrated];
     }
   } catch { /* */ }
@@ -51,7 +86,7 @@ function readAll(): ConnectionConfig[] {
 
 function writeAll(connections: ConnectionConfig[]): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(connections));
+  localStorage.setItem(getConnectionsKey(), JSON.stringify(connections));
 }
 
 export function getConnections(): ConnectionConfig[] {
@@ -119,6 +154,75 @@ export function clearConnectionConfig(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+/** 从服务端加载当前用户的连接配置到 localStorage */
+export async function loadConnectionsFromServer(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const res = await fetch("/api/connections");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.connections && Array.isArray(data.connections)) {
+      // 移除服务端独有字段，只保留客户端需要的字段
+      const clientConns: ConnectionConfig[] = data.connections.map(
+        (c: Record<string, unknown>) => ({
+          id: c.id as string,
+          name: c.name as string,
+          provider: c.provider as ProviderType,
+          baseUrl: c.baseUrl as string,
+          apiKey: c.apiKey as string,
+          modelId: c.modelId as string,
+          isDefault: c.isDefault as boolean | undefined,
+        })
+      );
+      writeAll(clientConns);
+    }
+  } catch {
+    // 静默失败，使用本地缓存
+  }
+}
+
+/** 将连接保存到服务端（创建或更新） */
+export async function saveConnectionToServer(config: ConnectionConfig): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    // 先检查是否已存在
+    const existing = readAll().find((c) => c.id === config.id);
+    if (existing) {
+      await fetch("/api/connections", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      });
+    } else {
+      await fetch("/api/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      });
+    }
+  } catch { /* */ }
+}
+
+/** 从服务端删除连接 */
+export async function deleteConnectionFromServer(id: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    await fetch(`/api/connections?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch { /* */ }
+}
+
+/** 将服务端某连接设为默认 */
+export async function setDefaultConnectionOnServer(id: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    await fetch("/api/connections", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action: "setDefault" }),
+    });
+  } catch { /* */ }
+}
+
 // --- analysis settings ---
 
 const ANALYSIS_KEY = "deepbook_analysis_settings";
@@ -145,6 +249,12 @@ export function getAnalysisSettings(): AnalysisSettings {
 export function saveAnalysisSettings(settings: AnalysisSettings): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(ANALYSIS_KEY, JSON.stringify(settings));
+  // 同步到服务端
+  fetch("/api/user-prefs", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ analysisSettings: settings }),
+  }).catch(() => {});
 }
 
 // --- plot settings ---
@@ -179,6 +289,12 @@ export function getPlotSettings(): PlotSettings {
 export function savePlotSettings(settings: PlotSettings): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(PLOT_KEY, JSON.stringify(settings));
+  // 同步到服务端
+  fetch("/api/user-prefs", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plotSettings: settings }),
+  }).catch(() => {});
 }
 
 export function getDefaultBaseUrl(provider: ProviderType): string {
@@ -226,4 +342,33 @@ export function setActivePersonaId(id: string | null): void {
   if (typeof window === "undefined") return;
   if (id) localStorage.setItem(PERSONA_KEY, id);
   else localStorage.removeItem(PERSONA_KEY);
+  // 同步到服务端
+  fetch("/api/user-prefs", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activePersonaId: id }),
+  }).catch(() => {});
+}
+
+/** 从服务端加载用户偏好到 localStorage */
+export async function loadPrefsFromServer(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const res = await fetch("/api/user-prefs");
+    if (!res.ok) return;
+    const data = await res.json();
+    const prefs = data.preferences;
+    if (!prefs) return;
+    if (prefs.analysisSettings) {
+      localStorage.setItem(ANALYSIS_KEY, JSON.stringify(prefs.analysisSettings));
+    }
+    if (prefs.plotSettings) {
+      localStorage.setItem(PLOT_KEY, JSON.stringify(prefs.plotSettings));
+    }
+    if (prefs.activePersonaId) {
+      localStorage.setItem(PERSONA_KEY, prefs.activePersonaId);
+    } else if (prefs.activePersonaId === null) {
+      localStorage.removeItem(PERSONA_KEY);
+    }
+  } catch { /* */ }
 }
