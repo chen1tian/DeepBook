@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
-import { createBook, getBook, getBooks, updateBook } from "@/lib/db";
+import { createBook, getBook, getBooks, updateBook, deleteBook } from "@/lib/db";
 import { createDialogue, getDialogue, getOpeningOptions } from "@/lib/dialogue-store";
 import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -282,18 +282,114 @@ const CLOSE_DIALOGUE_TOOL = {
   },
 };
 
+const DELETE_BOOK_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "delete_book",
+    description: "删除一本故事。用户说「删除这本书」「删掉这个故事」时调用。删除后数据不可恢复，需用户确认。",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        book_id: { type: "number", description: "要删除的故事 ID" },
+      },
+      required: ["book_id"],
+    },
+  },
+};
+
+const DELETE_PRESET_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "delete_preset",
+    description: "删除一个预设。用户说「删除这个预设」「删掉××预设」时调用。",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        preset_id: { type: "string", description: "预设 ID" },
+      },
+      required: ["preset_id"],
+    },
+  },
+};
+
+const DELETE_PERSONA_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "delete_persona",
+    description: "删除一个人格。用户说「删除这个人格」「删掉××人格」时调用。",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        persona_id: { type: "string", description: "人格 ID" },
+      },
+      required: ["persona_id"],
+    },
+  },
+};
+
+const GET_DIALOGUE_OVERVIEW_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "get_dialogue_overview",
+    description: "获取当前对话的故事状态概览：角色列表、主角、当前地点、时间、活跃剧情线。用户问「故事进展如何」「现在有哪些角色」「剧情到哪了」时调用。需要 bookId。",
+    parameters: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+};
+
+const GET_DIALOGUE_MESSAGES_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "get_dialogue_messages",
+    description: "读取当前对话最近的消息记录。用户问「最近写了什么」「对话进行到哪了」「看看内容」时调用。需要 bookId 对应的活跃对话。",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        count: { type: "number", description: "读取最近多少条消息，默认 10" },
+      },
+    },
+  },
+};
+
+const UPDATE_DIALOGUE_CONFIG_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "update_dialogue_config",
+    description: "更新当前对话的配置：修改时间、地点、NPC 列表等。用户说「换个地点」「增加一个NPC」「修改时间」时调用。",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        time: { type: "string", description: "新的时间设定（可选）" },
+        place: { type: "string", description: "新的地点设定（可选）" },
+        npcs: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, description: { type: "string" } },
+            required: ["name", "description"],
+          },
+          description: "替换整个 NPC 列表（可选）",
+        },
+      },
+    },
+  },
+};
+
 /* ── prompts ───────────────────────────────────────── */
 
 const DEFAULT_SYSTEM = `你是 DeepBook 的智能助手，一位博学、善解人意且富有创造力的伙伴。
 
 你的职责：
 - 帮助用户进行小说创作：情节构思、角色塑造、世界观构建、文笔润色等
-- 支持角色扮演：扮演任意角色与用户互动
-- 回答文学、写作相关问题
-- 引导用户探索故事的多种可能性
-- 管理预设：列出、创建、修改预设。（同上）
-- 管理人格：列出、创建、修改智能体人格。当用户说"创建新人格""有哪些人格"时调用对应工具
-- 查询故事：当用户问"有哪些故事""我的故事""故事列表"时，调用 list_books 列出（最多10个）。当用户说"打开某故事"时，告诉用户可以在首页点击故事封面进入对话
+- 管理故事：创建、列出、删除故事。当用户说「删除这本书」「删掉这个故事」时，先确认后调用 delete_book
+- 管理预设：列出、创建、修改、删除预设（delete_preset）
+- 管理人格：列出、创建、修改、删除智能体人格（delete_persona)。当用户说"创建新人格""有哪些人格"时调用对应工具
+- 查询故事：当用户问"有哪些故事""我的故事""故事列表"时，调用 list_books 列出。当用户说"打开某故事"时，告诉用户可以在首页点击故事封面进入对话
+- 查看对话进展：当用户问「故事进展如何」「有哪些角色」「剧情到哪了」时，用 get_dialogue_overview 查看
+- 查看对话内容：当用户问「最近写了什么」「看看内容」时，用 get_dialogue_messages 读取最近的消息
+- 修改对话设定：当用户说「换个地点」「增加一个NPC」「修改时间」时，用 update_dialogue_config 更新
 
 对话风格：
 - 创作时专业细致，角色扮演时全情投入
@@ -364,12 +460,16 @@ function buildTools(task: string | null, bookId?: number) {
     list.push(REUSE_OPENING_TOOL, START_DIALOGUE_TOOL, SAVE_PROTAGONIST_TOOL);
   if (task === "edit-preset")
     list.push(UPDATE_PRESET_TOOL, CREATE_PRESET_TOOL);
+  // dialogue-aware tools (available when a book is active)
+  if (bookId) {
+    list.push(GET_DIALOGUE_OVERVIEW_TOOL, GET_DIALOGUE_MESSAGES_TOOL, UPDATE_DIALOGUE_CONFIG_TOOL);
+  }
   // these are always available (deduplicate by name)
   const always = [
-    CREATE_BOOK_TOOL, LIST_BOOKS_TOOL,
+    CREATE_BOOK_TOOL, LIST_BOOKS_TOOL, DELETE_BOOK_TOOL,
     CLOSE_DIALOGUE_TOOL,
-    LIST_PRESETS_TOOL, UPDATE_PRESET_TOOL, CREATE_PRESET_TOOL,
-    LIST_PERSONAS_TOOL, CREATE_PERSONA_TOOL, UPDATE_PERSONA_TOOL,
+    LIST_PRESETS_TOOL, UPDATE_PRESET_TOOL, CREATE_PRESET_TOOL, DELETE_PRESET_TOOL,
+    LIST_PERSONAS_TOOL, CREATE_PERSONA_TOOL, UPDATE_PERSONA_TOOL, DELETE_PERSONA_TOOL,
     READ_FILE_TOOL, LIST_DIR_TOOL, SEARCH_FILES_TOOL, WRITE_FILE_TOOL,
   ];
   const seen = new Set(list.map((t) => t.function.name));
@@ -666,6 +766,109 @@ async function executeToolCall(
         await updateBook(bookId, userId, { active_dialogue_id: null });
       }
       return { success: true, action: "close_dialogue" };
+    }
+    case "delete_book": {
+      const targetId = args.book_id as number;
+      const book = await getBook(targetId, userId);
+      if (!book) return { success: false, error: "Book not found" };
+      await deleteBook(targetId, userId);
+      return { success: true, message: `故事「${book.name}」已删除` };
+    }
+    case "delete_preset": {
+      const { deletePreset } = await import("@/lib/presets");
+      const ok = deletePreset(args.preset_id as string, userId);
+      return ok ? { success: true, message: "预设已删除" } : { success: false, error: "Preset not found" };
+    }
+    case "delete_persona": {
+      const { deletePersona } = await import("@/lib/personas");
+      const ok = deletePersona(args.persona_id as string, userId);
+      return ok ? { success: true, message: "人格已删除" } : { success: false, error: "Persona not found" };
+    }
+    case "get_dialogue_overview": {
+      if (!bookId) return { success: false, error: "需要先打开一个故事" };
+      const book = await getBook(bookId, userId);
+      if (!book) return { success: false, error: "Book not found" };
+      if (!book.active_dialogue_id) return { success: false, error: "当前故事没有活跃对话" };
+
+      const { getStoryState } = await import("@/lib/story-state");
+      const { getPlotState } = await import("@/lib/plot-state");
+      const { listDialogues: listDlgs } = await import("@/lib/dialogue-store");
+
+      const dialogue = getDialogue(book.active_dialogue_id);
+      const storyState = getStoryState(book.active_dialogue_id);
+      const plotState = getPlotState(book.active_dialogue_id);
+      const dialogues = listDlgs(bookId, userId);
+
+      return {
+        success: true,
+        overview: {
+          bookName: book.name,
+          genre: book.genre,
+          style: book.style,
+          dialogueName: dialogue?.name || "未知",
+          config: book.dialogue_config ? {
+            mode: book.dialogue_config.mode,
+            pov: book.dialogue_config.pov,
+            time: book.dialogue_config.time,
+            place: book.dialogue_config.place,
+            protagonist: book.dialogue_config.protagonist,
+            npcs: book.dialogue_config.npcs,
+          } : null,
+          messageCount: dialogue?.messages.length || 0,
+          characters: storyState.characters,
+          protagonist: storyState.protagonist,
+          currentLocation: storyState.currentLocation,
+          currentDate: storyState.currentDate,
+          currentTime: storyState.currentTime,
+          activePlotLines: plotState.plotLines.filter((l) => l.status === "active").map((l) => ({
+            title: l.title,
+            activeNode: l.nodes.find((n) => n.status === "active")?.content,
+            nextNode: l.nodes.find((n) => n.status === "pending")?.content,
+          })),
+          dialogueCount: dialogues.length,
+        },
+      };
+    }
+    case "get_dialogue_messages": {
+      if (!bookId) return { success: false, error: "需要先打开一个故事" };
+      const book = await getBook(bookId, userId);
+      if (!book) return { success: false, error: "Book not found" };
+      if (!book.active_dialogue_id) return { success: false, error: "当前故事没有活跃对话" };
+
+      const dialogue = getDialogue(book.active_dialogue_id);
+      if (!dialogue) return { success: false, error: "Dialogue not found" };
+      if (dialogue.userId && dialogue.userId !== userId) return { success: false, error: "Access denied" };
+
+      const count = (args.count as number) || 10;
+      const nonSystem = dialogue.messages.filter((m) => m.role !== "system");
+      const recent = nonSystem.slice(-Math.min(count, nonSystem.length));
+
+      return {
+        success: true,
+        dialogueName: dialogue.name,
+        totalMessages: nonSystem.length,
+        recentMessages: recent.map((m) => ({
+          role: m.role,
+          content: m.content.length > 500 ? m.content.slice(0, 500) + "..." : m.content,
+        })),
+      };
+    }
+    case "update_dialogue_config": {
+      if (!bookId) return { success: false, error: "需要先打开一个故事" };
+      const book = await getBook(bookId, userId);
+      if (!book) return { success: false, error: "Book not found" };
+      if (!book.dialogue_config) return { success: false, error: "当前故事没有对话配置" };
+
+      const patch: Partial<typeof book.dialogue_config> = {};
+      if (args.time !== undefined) patch.time = args.time as string;
+      if (args.place !== undefined) patch.place = args.place as string;
+      if (args.npcs !== undefined) patch.npcs = args.npcs as { name: string; description: string }[];
+
+      if (Object.keys(patch).length === 0) return { success: false, error: "没有要更新的字段" };
+
+      const updatedConfig = { ...book.dialogue_config, ...patch };
+      await updateBook(bookId, userId, { dialogue_config: updatedConfig });
+      return { success: true, message: "对话配置已更新", config: updatedConfig };
     }
     default:
       return { success: false, error: `Unknown tool: ${name}` };
