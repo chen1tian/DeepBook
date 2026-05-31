@@ -177,8 +177,7 @@ ${existingJson}
 3. 基于已有状态增量更新，不要丢失已有角色和设定
 4. 主角也放在 characters 列表中
 5. alias 要收集角色在对话中出现的所有称呼、外号、昵称、小名，多个用中文逗号分隔
-6. lifeEvents 提取最近对话中角色发生的重要事件，重点关注因果：谁做了什么，导致这个角色怎么样了。不要重复已有的事件。每个事件必须包含 cause 和 effect 字段
-6. items 记录角色当前拥有的物品（身上的、包里的、持有的），要精确追踪物品的增加和减少。角色失去的物品不再列出
+6. 【重要】items 必须精确追踪角色当前拥有的所有物品。仔细阅读每一条对话，发现角色获得或失去物品时，更新 items 列表。获得物品 → 加入列表，失去/用掉/丢弃物品 → 从列表移除。不要遗漏任何物品变化
 7. lifeEvents 提取最近对话中角色发生的重要事件，重点关注因果：谁做了什么，导致这个角色怎么样了。不要重复已有的事件。每个事件必须包含 cause 和 effect 字段
 8. settings 收集对话中提到的重要故事设定（世界观规则、人物关系、历史背景、能力体系等）。同一个设定如果已有则用新信息更新，不要创建重复项`;
 }
@@ -223,9 +222,25 @@ function parseState(raw: string, fallback: StoryState): StoryState {
       return { ...c, lifeEvents: [...(existing.lifeEvents || []), ...newEvents], items: c.items || existing.items || [] };
     });
 
+    // Merge protagonist: prefer merged character if already in list, else merge manually
+    let mergedProtagonist = parsed.protagonist || null;
+    if (mergedProtagonist) {
+      const existingProto = existingChars.get(mergedProtagonist.name);
+      if (existingProto) {
+        mergedProtagonist = {
+          ...existingProto,
+          ...mergedProtagonist,
+          lifeEvents: [...(existingProto.lifeEvents || []), ...((mergedProtagonist.lifeEvents || []).filter(
+            (e) => !(existingProto.lifeEvents || []).some((ee) => ee.date === e.date && ee.description === e.description)
+          ))],
+          items: mergedProtagonist.items || existingProto.items || [],
+        };
+      }
+    }
+
     return {
       characters: mergedChars.length > 0 ? mergedChars : defaults.characters,
-      protagonist: parsed.protagonist || defaults.protagonist,
+      protagonist: mergedProtagonist,
       currentLocation: parsed.currentLocation || defaults.currentLocation,
       currentDate: parsed.currentDate || defaults.currentDate,
       currentTime: parsed.currentTime || defaults.currentTime,

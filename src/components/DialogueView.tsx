@@ -261,6 +261,11 @@ export default function DialogueView({
     const assistantMsg: DialogueMessage = { role: "assistant", content: "" };
     setMessages((prev) => [...prev, assistantMsg]);
 
+    // force scroll to bottom
+    setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+    }, 50);
+
     try {
       const res = await fetch("/api/dialogue", {
         method: "POST",
@@ -593,6 +598,12 @@ export default function DialogueView({
     setMessages((prev) => [...prev, userMsg]);
     const assistantMsg: DialogueMessage = { role: "assistant", content: "" };
     setMessages((prev) => [...prev, assistantMsg]);
+
+    // force scroll to bottom when user sends — re-lock auto-scroll
+    userScrolledUpRef.current = false;
+    setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+    }, 50);
 
     try {
       const res = await fetch("/api/dialogue", {

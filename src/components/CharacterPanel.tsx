@@ -120,6 +120,7 @@ export default function CharacterPanel({ open, onClose, characters, onAvatarUplo
             <ItemsField label="物品" items={selected.items} />
             <Field label="喜好" value={selected.preferences} />
             <Field label="背景" value={selected.background} />
+            <LifeEventsField events={selected.lifeEvents} />
           </div>
         </div>
       </div>
@@ -186,6 +187,35 @@ function ItemsField({ label, items }: { label: string; items?: string[] }) {
         {items.map((item, i) => (
           <div key={i} className="rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-300 truncate" title={item}>
             {item}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LifeEventsField({ events }: { events?: { date: string; description: string; cause: string; effect: string; relatedCharacters: string[] }[] }) {
+  if (!events || events.length === 0) return null;
+  const sorted = [...events].sort((a, b) => b.date.localeCompare(a.date));
+  return (
+    <div>
+      <div className="text-[10px] font-medium text-zinc-600 uppercase tracking-wide">人生经历 · 因果</div>
+      <div className="mt-1 space-y-2">
+        {sorted.map((e, i) => (
+          <div key={i} className="rounded-lg bg-zinc-800/50 px-3 py-2 ring-1 ring-white/5">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-zinc-500">{e.date}</span>
+              <span className="text-sm font-medium text-zinc-200">{e.description}</span>
+            </div>
+            {e.cause && <div className="mt-1 text-[11px] text-zinc-500">← {e.cause}</div>}
+            {e.effect && <div className="text-[11px] text-zinc-400">→ {e.effect}</div>}
+            {e.relatedCharacters && e.relatedCharacters.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {e.relatedCharacters.map((rc) => (
+                  <span key={rc} className="rounded bg-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400">{rc}</span>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

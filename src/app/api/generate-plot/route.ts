@@ -82,6 +82,7 @@ function buildRichContext(
 
   // multi-name matching: find mentioned characters
   const characterProfiles: string[] = [];
+  let protagonistProfile = "";
   for (const char of storyState.characters) {
     const keywords = [char.name, ...char.alias.split(/[、，,]/).map((s) => s.trim()).filter(Boolean)];
     const mentioned = keywords.some((kw) => recentText.includes(kw));
@@ -89,8 +90,14 @@ function buildRichContext(
     if (!mentioned && !isProtagonist) continue;
 
     const profile = buildCharacterProfile(char);
-    if (profile) characterProfiles.push(profile);
+    if (isProtagonist) {
+      protagonistProfile = `【★主角】${profile}`;
+    } else if (profile) {
+      characterProfiles.push(profile);
+    }
   }
+  // protagonist always first
+  if (protagonistProfile) characterProfiles.unshift(protagonistProfile);
 
   // causal network: extract unresolved tensions
   const causalSummary = buildCausalNetwork(storyState);
@@ -105,6 +112,13 @@ function buildRichContext(
   }
   if (causalSummary) {
     parts.push(`角色因果网络（未解决的张力/冲突/人情债）：\n${causalSummary}`);
+  }
+
+  // story settings
+  const settings = storyState.settings || [];
+  if (settings.length > 0) {
+    const settingLines = settings.slice(0, 10).map((s) => `- [${s.category}] ${s.key}：${s.value}`).join("\n");
+    parts.push(`故事设定（世界观/规则/背景）：\n${settingLines}`);
   }
 
   const contextBlock = parts.join("\n\n");
