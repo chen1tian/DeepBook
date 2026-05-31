@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Plus, Trash2, Bot, Check } from "lucide-react";
-import { getActivePresetId, setActivePresetId } from "@/lib/storage";
+import { getActivePresetId } from "@/lib/storage";
 
 interface Preset {
   id: string;
@@ -113,9 +113,18 @@ export default function PresetPanel({ onBack }: Props) {
     );
   }
 
-  function handleApply() {
+  async function handleApply() {
     if (!selectedId) return;
-    setActivePresetId(selectedId);
+    // 先同步到服务端，确保后续 LLM 调用能读取到
+    try {
+      await fetch("/api/user-prefs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activePresetId: selectedId }),
+      });
+    } catch { /* 静默失败，localStorage 兜底 */ }
+    // 再更新本地状态
+    localStorage.setItem("deepbook_active_preset", selectedId);
     setLocalActivePresetId(selectedId);
   }
 

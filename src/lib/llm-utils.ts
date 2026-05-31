@@ -7,9 +7,13 @@ type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 /** 根据当前激活的预设，构建注入到 LLM 消息顶部的 system 提示词 */
 function buildPresetPrompt(userId: string): string | null {
   const prefs = getUserPreferences(userId);
+  console.log("[预设注入] userId:", userId, "activePresetId:", prefs.activePresetId || "(无)");
   if (!prefs.activePresetId) return null;
   const preset = getPreset(prefs.activePresetId, userId);
-  if (!preset) return null;
+  if (!preset) {
+    console.log("[预设注入] 预设未找到:", prefs.activePresetId);
+    return null;
+  }
 
   const parts: string[] = [];
   parts.push(`## 当前写作预设：${preset.name}`);
@@ -20,7 +24,9 @@ function buildPresetPrompt(userId: string): string | null {
   if (preset.rules) {
     parts.push(`\n### 写作规则\n${preset.rules}`);
   }
-  return parts.join("\n");
+  const prompt = parts.join("\n");
+  console.log("[预设注入] 已注入预设提示词 (", preset.name, "), 长度:", prompt.length);
+  return prompt;
 }
 
 /**
