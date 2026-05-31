@@ -7,7 +7,7 @@ import { requireUserId } from "@/lib/auth-helper";
 
 export async function POST(req: NextRequest) {
   try {
-    const { dialogueId, baseUrl, apiKey, modelId, messageCount } = await req.json();
+    const { dialogueId, baseUrl, apiKey, modelId, messageCount, maxActiveLines } = await req.json();
     if (!dialogueId || !apiKey || !modelId) {
       return new Response(JSON.stringify({ error: "dialogueId, apiKey, modelId required" }), { status: 400 });
     }
@@ -23,6 +23,21 @@ export async function POST(req: NextRequest) {
     }
 
     const plotState = getPlotState(dialogueId);
+
+    // 检查激活剧情线数量是否已达上限
+    const threshold = maxActiveLines ?? 10;
+    const activeCount = plotState.plotLines.filter((l) => l.status === "active").length;
+    if (activeCount >= threshold) {
+      return new Response(JSON.stringify({
+        state: plotState,
+        newLines: 0,
+        skipped: true,
+        reason: `已有 ${activeCount} 条激活剧情线，达到上限 ${threshold}`,
+      }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const storyState = getStoryState(dialogueId);
 
     // collect recent messages

@@ -16,6 +16,7 @@ export interface UserPreferences {
     analysisConnectionId: string;
     spoilerPrevention: boolean;
     autoGenerate: boolean;
+    maxActiveLines: number;
   };
   activePersonaId: string | null;
 }
@@ -28,6 +29,7 @@ const DEFAULT_PREFS: Omit<UserPreferences, "userId"> = {
     analysisConnectionId: "",
     spoilerPrevention: true,
     autoGenerate: true,
+    maxActiveLines: 10,
   },
   activePersonaId: null,
 };

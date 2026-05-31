@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { getDialogue } from "@/lib/dialogue-store";
 import { getStoryState, saveStoryState, getDefaultStoryState, type StoryState, type CharacterInfo } from "@/lib/story-state";
+import type { LifeEvent } from "@/lib/story-state-types";
 import { requireUserId } from "@/lib/auth-helper";
 
 // GET — load existing story state
@@ -231,7 +232,7 @@ function parseState(raw: string, fallback: StoryState): StoryState {
           ...existingProto,
           ...mergedProtagonist,
           lifeEvents: [...(existingProto.lifeEvents || []), ...((mergedProtagonist.lifeEvents || []).filter(
-            (e) => !(existingProto.lifeEvents || []).some((ee) => ee.date === e.date && ee.description === e.description)
+            (e: LifeEvent) => !(existingProto.lifeEvents || []).some((ee: LifeEvent) => ee.date === e.date && ee.description === e.description)
           ))],
           items: mergedProtagonist.items || existingProto.items || [],
         };

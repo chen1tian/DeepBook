@@ -584,6 +584,7 @@ export default function DialogueView({
           apiKey: config.apiKey,
           modelId: config.modelId,
           messageCount: settings.messageCount,
+          maxActiveLines: settings.maxActiveLines ?? 10,
         }),
       });
       if (res.ok) {

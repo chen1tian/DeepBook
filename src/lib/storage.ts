@@ -283,6 +283,7 @@ export interface PlotSettings {
   analysisConnectionId: string;
   spoilerPrevention: boolean;
   autoGenerate: boolean;
+  maxActiveLines: number;
 }
 
 const DEFAULT_PLOT_SETTINGS: PlotSettings = {
@@ -291,6 +292,7 @@ const DEFAULT_PLOT_SETTINGS: PlotSettings = {
   analysisConnectionId: "",
   spoilerPrevention: true,
   autoGenerate: true,
+  maxActiveLines: 10,
 };
 
 export function getPlotSettings(): PlotSettings {

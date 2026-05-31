@@ -57,13 +57,13 @@ export async function POST(req: NextRequest) {
         { role: "user", content: systemPrompt },
       ],
       max_tokens: 65536,
-      reasoning_effort: "max",
+      // @ts-expect-error -- extra_body is needed for DeepSeek thinking mode
       extra_body: { thinking: { type: "enabled" } },
     });
 
     // log if reasoning was used
     try {
-      const msg = completion.choices[0]?.message as Record<string, unknown> | undefined;
+      const msg = completion.choices[0]?.message as unknown as Record<string, unknown> | undefined;
       console.log("=== analyze-plot REASONING ===", msg?.reasoning_content ? String(msg.reasoning_content).slice(0, 300) + "..." : "(无)");
     } catch { /* */ }
     try { console.log("=== analyze-plot USAGE ===", JSON.stringify(completion.usage)); } catch { /* */ }

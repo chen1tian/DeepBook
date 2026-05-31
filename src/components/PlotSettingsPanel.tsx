@@ -19,6 +19,7 @@ export default function PlotSettingsPanel({ open, onClose }: Props) {
   const [anaConnId, setAnaConnId] = useState("");
   const [spoiler, setSpoiler] = useState(true);
   const [autoGen, setAutoGen] = useState(true);
+  const [maxActiveLines, setMaxActiveLines] = useState(10);
   const [connections, setConnections] = useState<{ id: string; name: string }[]>([]);
   const [saved, setSaved] = useState(false);
 
@@ -30,6 +31,7 @@ export default function PlotSettingsPanel({ open, onClose }: Props) {
       setAnaConnId(s.analysisConnectionId);
       setSpoiler(s.spoilerPrevention);
       setAutoGen(s.autoGenerate);
+      setMaxActiveLines(s.maxActiveLines ?? 10);
       setConnections(getConnections().map((c) => ({ id: c.id, name: c.name })));
       setSaved(false);
     }
@@ -42,6 +44,7 @@ export default function PlotSettingsPanel({ open, onClose }: Props) {
       analysisConnectionId: anaConnId,
       spoilerPrevention: spoiler,
       autoGenerate: autoGen,
+      maxActiveLines,
     });
     setSaved(true);
     setTimeout(() => {
@@ -118,6 +121,22 @@ export default function PlotSettingsPanel({ open, onClose }: Props) {
                 ))}
               </select>
             )}
+          </div>
+
+          {/* max active plot lines */}
+          <div>
+            <label className="mb-1 block text-[11px] text-zinc-500">
+              最大激活剧情线（{maxActiveLines} 条）
+            </label>
+            <input
+              type="range" min={3} max={30} step={1}
+              value={maxActiveLines}
+              onChange={(e) => setMaxActiveLines(Number(e.target.value))}
+              className="w-full accent-purple-500"
+            />
+            <div className="flex justify-between text-[10px] text-zinc-600">
+              <span>3</span><span>30</span>
+            </div>
           </div>
 
           {/* toggles */}
