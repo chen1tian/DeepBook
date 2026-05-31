@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
+import { applyActivePreset } from "@/lib/llm-utils";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey, baseURL: baseUrl.replace(/\/$/, "") });
     const completion = await client.chat.completions.create({
       model: modelId,
-      messages: [
+      messages: applyActivePreset([
         {
           role: "system",
           content: `你是一个故事策划师。用户给你一个粗略的情节方向，你将其展开为 2-4 个具体的故事节点。
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
 注意：只返回 JSON，不要其他文字。节点按故事发展顺序排列。`,
         },
         { role: "user", content: idea },
-      ],
+      ]),
       temperature: 0.7,
       max_tokens: 1024,
     });

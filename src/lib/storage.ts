@@ -456,6 +456,27 @@ export function setActivePersonaId(id: string | null): void {
   }).catch(() => {});
 }
 
+// --- active preset ---
+
+const PRESET_KEY = "deepbook_active_preset";
+
+export function getActivePresetId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(PRESET_KEY);
+}
+
+export function setActivePresetId(id: string | null): void {
+  if (typeof window === "undefined") return;
+  if (id) localStorage.setItem(PRESET_KEY, id);
+  else localStorage.removeItem(PRESET_KEY);
+  // 同步到服务端
+  fetch("/api/user-prefs", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activePresetId: id }),
+  }).catch(() => {});
+}
+
 /** 从服务端加载用户偏好到 localStorage */
 export async function loadPrefsFromServer(): Promise<void> {
   if (typeof window === "undefined") return;
@@ -475,6 +496,11 @@ export async function loadPrefsFromServer(): Promise<void> {
       localStorage.setItem(PERSONA_KEY, prefs.activePersonaId);
     } else if (prefs.activePersonaId === null) {
       localStorage.removeItem(PERSONA_KEY);
+    }
+    if (prefs.activePresetId) {
+      localStorage.setItem(PRESET_KEY, prefs.activePresetId);
+    } else if (prefs.activePresetId === null) {
+      localStorage.removeItem(PRESET_KEY);
     }
   } catch { /* */ }
 }

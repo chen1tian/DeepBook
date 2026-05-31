@@ -45,7 +45,7 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
         .then((r) => r.json())
         .then((data) => {
           if (data.chat?.messages) {
-            setMessages(data.chat.messages.filter((m: Message) => m.role !== "system"));
+            setMessages(data.chat.messages);
           }
         })
         .catch(() => {});
@@ -248,6 +248,11 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
                 if (parsed.tool_result.name === "create_book" && parsed.tool_result.success) {
                   setMessages((prev) => {
                     const copy = [...prev];
+                    // 插入分隔符，标记新故事创建
+                    copy.splice(copy.length - 1, 0, {
+                      role: "system",
+                      content: `---\n\n📖 **新故事：《${parsed.tool_result.book.name}》**\n\n---`,
+                    });
                     copy[copy.length - 1] = {
                       ...copy[copy.length - 1],
                       content:
@@ -273,6 +278,11 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
                 if (parsed.tool_result.name === "start_dialogue" && parsed.tool_result.success) {
                   setMessages((prev) => {
                     const copy = [...prev];
+                    // 插入分隔符，标记新对话开始
+                    copy.splice(copy.length - 1, 0, {
+                      role: "system",
+                      content: `---\n\n🎭 **新对话开始**\n\n---`,
+                    });
                     copy[copy.length - 1] = {
                       ...copy[copy.length - 1],
                       content:
@@ -294,6 +304,11 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
                 if (parsed.tool_result.name === "reuse_opening" && parsed.tool_result.success) {
                   setMessages((prev) => {
                     const copy = [...prev];
+                    // 插入分隔符，标记新对话开始
+                    copy.splice(copy.length - 1, 0, {
+                      role: "system",
+                      content: `---\n\n🎭 **新对话开始**\n\n---`,
+                    });
                     copy[copy.length - 1] = {
                       ...copy[copy.length - 1],
                       content:
@@ -379,21 +394,27 @@ export default function ChatWindow({ task, bookId, bookName, bookContext, active
         )}
         {messages.map((m, i) => {
           const isUser = m.role === "user";
+          const isSystem = m.role === "system";
+          if (isSystem) {
+            return (
+              <div key={i} className="flex items-center justify-center py-1">
+                <div className="text-xs text-zinc-500 prose-sm prose-invert prose-hr:border-zinc-700 text-center max-w-[85%]">
+                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                </div>
+              </div>
+            );
+          }
           return (
           <div
             key={i}
             className={
               isUser
-                ? "ml-auto max-w-[80%] rounded-xl rounded-br-md bg-zinc-800 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap"
+                ? "ml-auto max-w-[80%] rounded-xl rounded-br-md bg-zinc-800 px-3 py-2 text-sm text-zinc-200"
                 : "max-w-[85%] text-sm text-zinc-400 prose-sm prose-invert prose-headings:text-zinc-200 prose-strong:text-zinc-200 prose-code:text-zinc-300 prose-code:bg-zinc-800 prose-code:px-1 prose-code:rounded prose-table:text-xs prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700"
             }
           >
             {m.content ? (
-              isUser ? (
-                m.content
-              ) : (
-                <ReactMarkdown>{m.content}</ReactMarkdown>
-              )
+              <ReactMarkdown>{m.content}</ReactMarkdown>
             ) : (
               <span className="inline-flex items-center gap-1 text-zinc-600">
                 <Loader2 size={12} className="animate-spin" />

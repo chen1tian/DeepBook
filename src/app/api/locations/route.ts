@@ -8,6 +8,7 @@ import {
   type LocationNetwork,
 } from "@/lib/location-store";
 import { requireUserId } from "@/lib/auth-helper";
+import { applyActivePreset } from "@/lib/llm-utils";
 
 // GET — load location network
 export async function GET(req: NextRequest) {
@@ -82,10 +83,10 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey, baseURL: baseUrl.replace(/\/$/, "") });
     const completion = await client.chat.completions.create({
       model: modelId,
-      messages: [
+      messages: applyActivePreset([
         { role: "system", content: systemPrompt },
         { role: "user", content: `根据以下最近的对话内容，更新地点网络：\n\n${recentText}` },
-      ],
+      ], userId),
       temperature: 0.3,
       max_tokens: 2048,
     });

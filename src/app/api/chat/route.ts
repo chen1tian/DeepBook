@@ -5,6 +5,7 @@ import { createDialogue, getDialogue, getOpeningOptions } from "@/lib/dialogue-s
 import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { requireUserId } from "@/lib/auth-helper";
+import { applyActivePreset } from "@/lib/llm-utils";
 
 /* ── tools ─────────────────────────────────────────── */
 
@@ -1252,6 +1253,9 @@ export async function POST(req: NextRequest) {
       compacted = true;
     }
 
+    // 统一预处理：安全模式检查
+    const finalMessages = applyActivePreset(llmMessages, userId);
+
     const encoder = new TextEncoder();
 
     const readable = new ReadableStream({
@@ -1259,7 +1263,7 @@ export async function POST(req: NextRequest) {
         try {
           const stream1 = await client.chat.completions.create({
             model: modelId,
-            messages: llmMessages,
+            messages: finalMessages,
             stream: true,
             tools,
             tool_choice: tools ? "auto" : undefined,
@@ -1307,7 +1311,7 @@ export async function POST(req: NextRequest) {
                 );
 
                 // append assistant tool_call + tool result for follow-up
-                llmMessages.push({
+                finalMessages.push({
                   role: "assistant",
                   content: null,
                   ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
@@ -1317,7 +1321,7 @@ export async function POST(req: NextRequest) {
                     function: { name: tc.name, arguments: tc.args },
                   }],
                 } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
-                llmMessages.push({
+                finalMessages.push({
                   role: "tool",
                   tool_call_id: tc.id,
                   content: JSON.stringify(result),
@@ -1326,7 +1330,7 @@ export async function POST(req: NextRequest) {
                 // stream follow-up response
                 const stream2 = await client.chat.completions.create({
                   model: modelId,
-                  messages: llmMessages,
+                  messages: finalMessages,
                   stream: true,
                 });
                 for await (const chunk of stream2) {

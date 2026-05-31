@@ -4,6 +4,7 @@ import { getDialogue } from "@/lib/dialogue-store";
 import { getStoryState, saveStoryState, getDefaultStoryState, type StoryState, type CharacterInfo } from "@/lib/story-state";
 import type { LifeEvent } from "@/lib/story-state-types";
 import { requireUserId } from "@/lib/auth-helper";
+import { applyActivePreset } from "@/lib/llm-utils";
 
 // GET — load existing story state
 export async function GET(req: NextRequest) {
@@ -86,13 +87,13 @@ export async function POST(req: NextRequest) {
 
     const completion = await client.chat.completions.create({
       model: modelId,
-      messages: [
+      messages: applyActivePreset([
         { role: "system", content: systemPrompt },
         ...recentMessages.map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
         })),
-      ],
+      ], userId),
       temperature: 0.3,
       max_tokens: 2048,
     });

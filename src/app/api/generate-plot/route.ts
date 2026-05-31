@@ -4,6 +4,7 @@ import { getDialogue } from "@/lib/dialogue-store";
 import { getPlotState, savePlotState } from "@/lib/plot-state";
 import { getStoryState } from "@/lib/story-state";
 import { requireUserId } from "@/lib/auth-helper";
+import { applyActivePreset } from "@/lib/llm-utils";
 
 export async function POST(req: NextRequest) {
   try {
@@ -51,10 +52,10 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey, baseURL: baseUrl.replace(/\/$/, "") });
     const completion = await client.chat.completions.create({
       model: modelId,
-      messages: [
+      messages: applyActivePreset([
         { role: "system", content: systemPrompt },
         { role: "user", content: `基于以下最近的对话内容，分析故事发展方向并生成新的剧情线：\n\n${recentText}` },
-      ],
+      ], userId),
       temperature: 0.8,
       max_tokens: 2048,
     });

@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { getDialogue } from "@/lib/dialogue-store";
 import { getPlotState, savePlotState, type PlotState } from "@/lib/plot-state";
 import { requireUserId } from "@/lib/auth-helper";
+import { applyActivePreset } from "@/lib/llm-utils";
 
 export async function POST(req: NextRequest) {
   try {
@@ -53,9 +54,9 @@ export async function POST(req: NextRequest) {
     console.log("=== analyze-plot CALLING ===", { model: modelId, thinking: "enabled", effort: "max" });
     const completion = await client.chat.completions.create({
       model: modelId,
-      messages: [
+      messages: applyActivePreset([
         { role: "user", content: systemPrompt },
-      ],
+      ], userId),
       max_tokens: 65536,
       // @ts-expect-error -- extra_body is needed for DeepSeek thinking mode
       extra_body: { thinking: { type: "enabled" } },

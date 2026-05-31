@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Bot } from "lucide-react";
+import { Plus, Trash2, Bot, Check } from "lucide-react";
+import { getActivePresetId, setActivePresetId } from "@/lib/storage";
 
 interface Preset {
   id: string;
@@ -26,6 +27,7 @@ export default function PresetPanel({ onBack }: Props) {
   const [rules, setRules] = useState("");
   const [saving, setSaving] = useState(false);
   const [isNew, setIsNew] = useState(false);
+  const [activePresetId, setLocalActivePresetId] = useState<string | null>(null);
 
   useEffect(() => { fetchPresets(); }, []);
 
@@ -39,7 +41,15 @@ export default function PresetPanel({ onBack }: Props) {
   async function fetchPresets() {
     const res = await fetch("/api/presets");
     const data = await res.json();
-    setPresets(data.presets || []);
+    const list = data.presets || [];
+    setPresets(list);
+    // 自动选中当前激活的预设
+    const activeId = getActivePresetId();
+    setLocalActivePresetId(activeId);
+    if (activeId && !selectedId) {
+      const active = list.find((p: Preset) => p.id === activeId);
+      if (active) selectPreset(active);
+    }
   }
 
   function selectPreset(p: Preset) {
@@ -101,6 +111,12 @@ export default function PresetPanel({ onBack }: Props) {
     window.dispatchEvent(
       new CustomEvent("deepbook:edit-preset", { detail: current })
     );
+  }
+
+  function handleApply() {
+    if (!selectedId) return;
+    setActivePresetId(selectedId);
+    setLocalActivePresetId(selectedId);
   }
 
   function handleClose() {
@@ -234,6 +250,26 @@ export default function PresetPanel({ onBack }: Props) {
               >
                 {saving ? "保存中..." : isNew ? "创建" : "保存"}
               </button>
+              {!isNew && (
+                <button
+                  onClick={handleApply}
+                  disabled={selectedId === activePresetId}
+                  className="rounded-lg px-3 py-2 text-sm font-medium transition disabled:opacity-50"
+                  style={{
+                    background: selectedId === activePresetId ? "rgb(22 163 74 / 0.15)" : "rgb(250 204 21 / 0.1)",
+                    color: selectedId === activePresetId ? "#4ade80" : "#facc15",
+                  }}
+                  title={selectedId === activePresetId ? "已应用" : "应用为当前预设"}
+                >
+                  {selectedId === activePresetId ? (
+                    <span className="flex items-center gap-1">
+                      <Check size={14} /> 已应用
+                    </span>
+                  ) : (
+                    "应用"
+                  )}
+                </button>
+              )}
               {!isNew && (
                 <button
                   onClick={handleDelete}

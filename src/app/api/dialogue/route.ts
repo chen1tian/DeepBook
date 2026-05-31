@@ -4,6 +4,7 @@ import { getBook } from "@/lib/db";
 import { getDialogueMessages, getDialogue, appendMessage, deleteMessages, updateMessage, updateCompactionSummary } from "@/lib/dialogue-store";
 import { getPlotState } from "@/lib/plot-state";
 import { requireUserId } from "@/lib/auth-helper";
+import { applyActivePreset } from "@/lib/llm-utils";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest) {
         try {
           const stream = await client.chat.completions.create({
             model: modelId,
-            messages: llmMessages,
+            messages: applyActivePreset(llmMessages, userId),
             stream: true,
           });
 
@@ -207,10 +208,10 @@ async function triggerCompaction(dialogueId: string, client: OpenAI, modelId: st
   try {
     const completion = await client.chat.completions.create({
       model: modelId,
-      messages: [
+      messages: applyActivePreset([
         { role: "system", content: "你是一个故事进度摘要生成器。请简洁地总结故事进展，保留关键事件和因果链。" },
         { role: "user", content: prompt },
-      ],
+      ], record.userId),
       temperature: 0.3,
       max_tokens: 600,
     });

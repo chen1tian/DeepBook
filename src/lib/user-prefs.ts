@@ -19,6 +19,7 @@ export interface UserPreferences {
     maxActiveLines: number;
   };
   activePersonaId: string | null;
+  activePresetId: string | null;
 }
 
 const DEFAULT_PREFS: Omit<UserPreferences, "userId"> = {
@@ -32,6 +33,7 @@ const DEFAULT_PREFS: Omit<UserPreferences, "userId"> = {
     maxActiveLines: 10,
   },
   activePersonaId: null,
+  activePresetId: null,
 };
 
 function ensureDir() {
@@ -63,6 +65,7 @@ export function getUserPreferences(userId: string): UserPreferences {
       analysisSettings: { ...DEFAULT_PREFS.analysisSettings, ...existing.analysisSettings },
       plotSettings: { ...DEFAULT_PREFS.plotSettings, ...existing.plotSettings },
       activePersonaId: existing.activePersonaId ?? null,
+      activePresetId: existing.activePresetId ?? null,
     };
   }
   return { userId, ...DEFAULT_PREFS };
@@ -86,6 +89,7 @@ export function updateUserPreferences(
       ? { ...current.plotSettings, ...patch.plotSettings }
       : current.plotSettings,
     activePersonaId: patch.activePersonaId !== undefined ? patch.activePersonaId : current.activePersonaId,
+    activePresetId: patch.activePresetId !== undefined ? patch.activePresetId : current.activePresetId,
   };
 
   if (idx >= 0) {
