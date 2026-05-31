@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
-import { getDisplayMessageCount, saveDisplayMessageCount } from "@/lib/storage";
+import { getDisplayMessageCount, saveDisplayMessageCount, getFontSize, saveFontSize, getQuoteColor, saveQuoteColor } from "@/lib/storage";
 
 interface Props {
   open: boolean;
@@ -11,17 +11,23 @@ interface Props {
 
 export default function AppSettingsPanel({ open, onClose }: Props) {
   const [displayCount, setDisplayCount] = useState(30);
+  const [fontSize, setFontSize] = useState(14);
+  const [quoteColor, setQuoteColor] = useState("#ca824e");
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDisplayCount(getDisplayMessageCount());
+      setFontSize(getFontSize());
+      setQuoteColor(getQuoteColor());
       setSaved(false);
     }
   }, [open]);
 
   function handleSave() {
     saveDisplayMessageCount(displayCount);
+    saveFontSize(fontSize);
+    saveQuoteColor(quoteColor);
     setSaved(true);
     setTimeout(() => {
       onClose();
@@ -65,6 +71,41 @@ export default function AppSettingsPanel({ open, onClose }: Props) {
             <p className="mt-1 text-[10px] text-zinc-600">
               仅控制界面显示数量，不影响对话数据和 AI 上下文。
             </p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] text-zinc-500">
+              对话文字大小（{fontSize}px）
+            </label>
+            <input
+              type="range"
+              min={12}
+              max={22}
+              step={1}
+              value={fontSize}
+              onChange={(e) => setFontSize(Number(e.target.value))}
+              className="w-full accent-zinc-400"
+            />
+            <div className="flex justify-between text-[10px] text-zinc-600">
+              <span>12px</span>
+              <span>22px</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] text-zinc-500">
+              对话引用颜色
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={quoteColor}
+                onChange={(e) => setQuoteColor(e.target.value)}
+                className="h-8 w-12 cursor-pointer rounded border-0 bg-transparent"
+              />
+              <span className="text-xs text-zinc-400">{quoteColor}</span>
+              <span className="text-xs" style={{ color: quoteColor }}>预览</span>
+            </div>
           </div>
 
           <button

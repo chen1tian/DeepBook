@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { getConnectionConfig, getConnections, getAnalysisSettings, getPlotSettings, getCompactionThreshold, getDisplayMessageCount } from "@/lib/storage";
+import rehypeRaw from "rehype-raw";
+import { getConnectionConfig, getConnections, getAnalysisSettings, getPlotSettings, getCompactionThreshold, getDisplayMessageCount, getFontSize, getQuoteColor } from "@/lib/storage";
 import type { StoryState, CharacterInfo, StorySetting } from "@/lib/story-state-types";
 import type { LocationNetwork } from "@/lib/location-types";
 import StoryStateBar, { type PanelType } from "./StoryStateBar";
@@ -68,7 +69,32 @@ export default function DialogueView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const analyzingRef = useRef(false);
-  const [, setDisplayTick] = useState(0); // force re-render on settings change
+  const [, setDisplayTick] = useState(0);
+  const [fontSize, setFontSize] = useState(14);
+  const [quoteColor, setQuoteColor] = useState("#ca824e");
+
+  // load display settings on mount + listen for changes
+  useEffect(() => {
+    setFontSize(getFontSize());
+    setQuoteColor(getQuoteColor());
+    function handle() {
+      setDisplayTick((t) => t + 1);
+      setFontSize(getFontSize());
+      setQuoteColor(getQuoteColor());
+    }
+    window.addEventListener("deepbook:settings-changed", handle);
+    return () => window.removeEventListener("deepbook:settings-changed", handle);
+  }, []);
+
+  // process quote coloring: wrap "..." in styled spans
+  function colorizeQuotes(content: string, color: string): string {
+    if (!content) return content;
+    // match ASCII double-quotes and Chinese curly quotes \u201c...\u201d
+    return content.replace(/["\u201c]([^"\u201c\u201d\n]*?)["\u201d]/g, (match) => {
+      return `<span style="color:${color}">${match}</span>`;
+    });
+  }
+
   const locationAnalyzingRef = useRef(false);
   const userScrolledUpRef = useRef(false); // true = 用户已上滑，暂停自动滚动
   const prevScrollTopRef = useRef(0);
@@ -889,9 +915,16 @@ export default function DialogueView({
                 </div>
               ) : m.content ? (
                 isUser ? (
-                  m.content
+                  <span
+                    style={{ fontSize: `${fontSize}px` }}
+                    dangerouslySetInnerHTML={{ __html: colorizeQuotes(m.content, quoteColor) }}
+                  />
                 ) : (
-                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                  <div style={{ fontSize: `${fontSize}px` }}>
+                    <ReactMarkdown rehypePlugins={[rehypeRaw]}>
+                      {colorizeQuotes(m.content, quoteColor)}
+                    </ReactMarkdown>
+                  </div>
                 )
               ) : (
                 <span className="inline-flex items-center gap-1 text-zinc-600">

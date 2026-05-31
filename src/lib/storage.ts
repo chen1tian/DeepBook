@@ -359,6 +359,48 @@ export function saveDisplayMessageCount(count: number): void {
   localStorage.setItem(DISPLAY_COUNT_KEY, String(clamped));
 }
 
+// --- font size ---
+
+const FONT_SIZE_KEY = "deepbook_font_size";
+const DEFAULT_FONT_SIZE = 14;
+
+export function getFontSize(): number {
+  if (typeof window === "undefined") return DEFAULT_FONT_SIZE;
+  try {
+    const raw = localStorage.getItem(FONT_SIZE_KEY);
+    if (raw) {
+      const val = parseInt(raw, 10);
+      if (val >= 12 && val <= 22) return val;
+    }
+  } catch { /* */ }
+  return DEFAULT_FONT_SIZE;
+}
+
+export function saveFontSize(size: number): void {
+  if (typeof window === "undefined") return;
+  const clamped = Math.max(12, Math.min(22, size));
+  localStorage.setItem(FONT_SIZE_KEY, String(clamped));
+}
+
+// --- quote color ---
+
+const QUOTE_COLOR_KEY = "deepbook_quote_color";
+const DEFAULT_QUOTE_COLOR = "#ca824e";
+
+export function getQuoteColor(): string {
+  if (typeof window === "undefined") return DEFAULT_QUOTE_COLOR;
+  try {
+    const raw = localStorage.getItem(QUOTE_COLOR_KEY);
+    if (raw) return raw;
+  } catch { /* */ }
+  return DEFAULT_QUOTE_COLOR;
+}
+
+export function saveQuoteColor(color: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(QUOTE_COLOR_KEY, color);
+}
+
 export function getDefaultBaseUrl(provider: ProviderType): string {
   if (provider === "deepseek") return DEEPSEEK_BASE;
   return "https://api.openai.com/v1";
