@@ -211,7 +211,7 @@ function parseNewPlotLines(raw: string): ReturnType<typeof getPlotState>["plotLi
         id: generateId(),
         content: n.content || "",
         status: "pending" as const,
-        pendingSince: nonSystem.length,
+        pendingSince: 0,
         order: i,
       })),
       status: "active" as const,

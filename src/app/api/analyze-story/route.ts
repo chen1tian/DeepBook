@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { getDialogue } from "@/lib/dialogue-store";
-import { getStoryState, saveStoryState, getDefaultStoryState, type StoryState } from "@/lib/story-state";
+import { getStoryState, saveStoryState, getDefaultStoryState, type StoryState, type CharacterInfo } from "@/lib/story-state";
 import { requireUserId } from "@/lib/auth-helper";
 
 // GET — load existing story state
