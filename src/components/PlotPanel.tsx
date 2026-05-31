@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Plus, ChevronRight, ChevronDown, GitBranch, Loader2, Eye, EyeOff, Archive } from "lucide-react";
+import { X, Plus, ChevronRight, ChevronDown, GitBranch, Loader2, Eye, EyeOff, Archive, Play } from "lucide-react";
 import type { PlotState, PlotLine, PlotNode } from "@/lib/plot-state-types";
 import { getPlotSettings } from "@/lib/storage";
 
@@ -9,6 +9,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   dialogueId: string | null;
+  onAnalyze?: () => void;
 }
 
 const statusColors: Record<PlotNode["status"], string> = {
@@ -25,7 +26,7 @@ const statusDots: Record<PlotNode["status"], string> = {
   skipped: "⊗",
 };
 
-export default function PlotPanel({ open, onClose, dialogueId }: Props) {
+export default function PlotPanel({ open, onClose, dialogueId, onAnalyze }: Props) {
   const [state, setState] = useState<PlotState>({ plotLines: [], lastAnalyzedAt: "", lastGeneratedAt: "" });
   const [expandedLines, setExpandedLines] = useState<Set<string>>(new Set());
   const [spoiler, setSpoiler] = useState(true);
@@ -142,6 +143,15 @@ export default function PlotPanel({ open, onClose, dialogueId }: Props) {
             )}
           </div>
           <div className="flex items-center gap-1">
+            {onAnalyze && (
+              <button
+                onClick={onAnalyze}
+                className="rounded p-1 text-zinc-500 hover:text-purple-400"
+                title="手动分析剧情"
+              >
+                <Play size={14} />
+              </button>
+            )}
             {spoiler && hasData && <EyeOff size={13} className="text-zinc-600" aria-label="防剧透已启用" />}
             <button onClick={onClose} className="rounded p-1 text-zinc-500 hover:text-zinc-300">
               <X size={16} />

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { getDialogue } from "@/lib/dialogue-store";
-import { getPlotState, savePlotState, getDefaultPlotState, type PlotState } from "@/lib/plot-state";
+import { getPlotState, savePlotState, type PlotState } from "@/lib/plot-state";
 import { requireUserId } from "@/lib/auth-helper";
 
 export async function POST(req: NextRequest) {
@@ -33,8 +33,25 @@ export async function POST(req: NextRequest) {
     const count = Math.min(messageCount || 20, nonSystem.length);
     const recentMessages = nonSystem.slice(-count);
 
-    // build concise analysis prompt
-    const systemPrompt = buildPlotAnalysisPrompt(plotState);
+    // build a compact story summary from recent messages
+    const storySummary = recentMessages.slice(-6).map((m) =>
+      `${m.role === "user" ? "用户引导" : "故事叙述"}: ${m.content.slice(0, 300)}`
+    ).join("\n---\n");
+
+    // build analysis prompt with story context
+    const systemPrompt = buildPlotAnalysisPrompt(plotState, storySummary);
+    if (systemPrompt === "NO_PENDING_NODES") {
+      return new Response(JSON.stringify({ state: plotState, noPending: true }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // DEBUG: log the prompt for inspection
+    console.log("=== analyze-plot SYSTEM PROMPT ===");
+    console.log(systemPrompt);
+    console.log("=== analyze-plot RECENT MESSAGES ===");
+    recentMessages.forEach((m, i) => console.log(`[${i}] ${m.role}: ${m.content.slice(0, 200)}...`));
+    console.log("=== END analyze-plot PROMPT ===\n");
 
     const client = new OpenAI({ apiKey, baseURL: baseUrl.replace(/\/$/, "") });
     const completion = await client.chat.completions.create({
@@ -46,16 +63,19 @@ export async function POST(req: NextRequest) {
           content: m.content.slice(0, 2000),
         })),
       ],
-      temperature: 0.2,
-      max_tokens: 1024,
+      temperature: 0.7,
+      max_tokens: 512,
     });
 
     const raw = completion.choices[0]?.message?.content || "";
-    const updates = parsePlotUpdates(raw, plotState);
+    console.log("=== analyze-plot LLM RESPONSE ===");
+    console.log(raw);
+    console.log("=== END analyze-plot RESPONSE ===\n");
+    activateTopNodes(raw, plotState);
     plotState.lastAnalyzedAt = new Date().toISOString();
     savePlotState(dialogueId, plotState);
 
-    return new Response(JSON.stringify({ state: plotState, updates }), {
+    return new Response(JSON.stringify({ state: plotState }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
@@ -64,111 +84,104 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function buildPlotAnalysisPrompt(state: PlotState): string {
+function buildPlotAnalysisPrompt(state: PlotState, storySummary: string): string {
   const activeLines = state.plotLines.filter((l) => l.status === "active");
-  const activeNodes: string[] = [];
-  const pendingLines: string[] = [];
-
+  
+  // collect ALL pending nodes across all active lines, with unique IDs
+  const allPending: { id: string; lineTitle: string; nodeIndex: number; content: string }[] = [];
   for (const line of activeLines) {
-    const nodeList = line.nodes.map((n, i) => {
-      const marker = n.status === "active" ? "●" : n.status === "completed" ? "✓" : n.status === "skipped" ? "✗" : "○";
-      return `  节点${i} [${marker}]: ${n.content}`;
-    }).join("\n");
-
-    if (line.nodes.some((n) => n.status === "active")) {
-      const active = line.nodes.find((n) => n.status === "active");
-      if (active) activeNodes.push(`[${line.title}] 节点${active.order}: ${active.content}`);
-    }
-
-    // show full node list for lines with any pending nodes
-    if (line.nodes.some((n) => n.status === "pending")) {
-      pendingLines.push(`【${line.title}】\n${nodeList}`);
+    if (line.nodes.some((n) => n.status === "active")) continue;
+    for (let i = 0; i < line.nodes.length; i++) {
+      if (line.nodes[i].status === "pending") {
+        allPending.push({
+          id: `${line.title}::${i}`,
+          lineTitle: line.title,
+          nodeIndex: i,
+          content: line.nodes[i].content,
+        });
+      }
     }
   }
 
-  return `你是一个剧情状态追踪器。根据最新的对话内容，判断以下剧情线中节点的状态变化。
+  if (allPending.length === 0) {
+    return "NO_PENDING_NODES";
+  }
 
-当前激活的节点：
-${activeNodes.length > 0 ? activeNodes.map((n) => `- ${n}`).join("\n") : "（无）"}
+  // limit prompt size: show max 20 lines, each node truncated
+  const MAX_LINES = 20;
+  const displayed = allPending.slice(0, MAX_LINES);
+  const nodeList = displayed.map((n) => `[${n.id}] ${n.content.slice(0, 150)}`).join("\n");
+  const suffix = allPending.length > MAX_LINES ? `\n...（还有 ${allPending.length - MAX_LINES} 个节点未列出）` : "";
 
-所有待处理的剧情线（含全部节点）：
-${pendingLines.length > 0 ? pendingLines.join("\n\n") : "（无）"}
+  return `你是剧情匹配器，不是故事作者。只输出 JSON，绝对不要输出故事内容。
 
-请返回 JSON，使用节点索引（节点0、节点1、节点2...）来标识：
-{
-  "activations": ["剧情线标题::0"],   // pending→active（填节点索引）
-  "completions": ["剧情线标题::0"],  // active→completed
-  "skips": ["剧情线标题::1"],        // pending→skipped
-  "archiveLines": ["剧情线标题"]     // 整条线归档
+=== 当前故事 ===
+${storySummary}
+
+=== 候选节点 ===
+${nodeList}${suffix}
+
+从中选出与故事最相关的 1-3 个节点。如果多个节点属于同一条剧情线，只保留该线的第 1 个节点。
+
+正确输出示例：
+{"topNodes":["技术债引爆::0"]}
+{"topNodes":["技术债引爆::0","周远的赌注::1"]}
+{"topNodes":[]}
+
+错误示例（严禁）：
+- 不要写故事内容
+- 不要写分析过程
+- 不要写"根据故事进展..."
+- 不要用 markdown 代码块
+
+只输出一行 JSON。`;
 }
 
-注意：
-1. 只返回 JSON，不要其他文字
-2. 只列出确实有变化的节点
-3. 每条剧情线同一时间最多一个 active 节点
-4. 如果没有任何变化，返回空对象 {}`;
-}
-
-function parsePlotUpdates(raw: string, state: PlotState): Record<string, string[]> {
+function activateTopNodes(raw: string, state: PlotState): void {
   try {
     let json = raw.trim();
     const fence = json.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fence) json = fence[1].trim();
     const parsed = JSON.parse(json);
+    const topNodes: string[] = parsed.topNodes || [];
+    console.log("=== activateTopNodes parsed ===", JSON.stringify(parsed));
+    if (!Array.isArray(topNodes) || topNodes.length === 0) {
+      console.log("=== activateTopNodes: no nodes to activate ===");
+      return;
+    }
+
     const now = new Date().toISOString();
 
-    // helper: resolve node by index-first, fallback to content substring match
-    function findNode(line: typeof state.plotLines[0], idxStr: string, matchStatus: string) {
+    // group by plot line
+    const byLine = new Map<string, number[]>();
+    for (const id of topNodes) {
+      const [lineTitle, idxStr] = id.split("::");
       const idx = parseInt(idxStr, 10);
-      if (!isNaN(idx)) return line.nodes[idx];
-      // fallback: substring match
-      return line.nodes.find((n) => n.content.includes(idxStr) && n.status === matchStatus);
+      if (isNaN(idx)) continue;
+      if (!byLine.has(lineTitle)) byLine.set(lineTitle, []);
+      byLine.get(lineTitle)!.push(idx);
     }
 
-    // process completions
-    for (const key of (parsed.completions || [])) {
-      const [lineTitle, idxStr] = key.split("::");
-      const line = state.plotLines.find((l) => l.title === lineTitle);
-      if (!line) continue;
-      const node = findNode(line, idxStr, "active");
-      if (node && node.status === "active") {
-        node.status = "completed";
-        node.completedAt = now;
-        const next = line.nodes.find((n) => n.status === "pending");
-        if (next) { next.status = "active"; next.activatedAt = now; delete next.pendingSince; }
-      }
+    // collapse: if all top nodes from same line, keep only the closest (lowest index)
+    if (byLine.size === 1) {
+      const [lineTitle, indices] = [...byLine][0];
+      byLine.set(lineTitle, [Math.min(...indices)]);
     }
 
-    // process activations
-    for (const key of (parsed.activations || [])) {
-      const [lineTitle, idxStr] = key.split("::");
+    // activate: for each line, activate its best-match node
+    for (const [lineTitle, indices] of byLine) {
       const line = state.plotLines.find((l) => l.title === lineTitle);
       if (!line || line.nodes.some((n) => n.status === "active")) continue;
-      const node = findNode(line, idxStr, "pending");
+      const bestIdx = Math.min(...indices);
+      const node = line.nodes[bestIdx];
       if (node && node.status === "pending") {
         node.status = "active";
         node.activatedAt = now;
         delete node.pendingSince;
       }
     }
-
-    // process skips
-    for (const key of (parsed.skips || [])) {
-      const [lineTitle, idxStr] = key.split("::");
-      const line = state.plotLines.find((l) => l.title === lineTitle);
-      if (!line) continue;
-      const node = findNode(line, idxStr, "");
-      if (node) node.status = "skipped";
-    }
-
-    // process archive lines
-    for (const title of (parsed.archiveLines || [])) {
-      const line = state.plotLines.find((l) => l.title === title);
-      if (line) line.status = "archived";
-    }
-
-    return parsed;
-  } catch {
-    return {};
+    console.log("=== activateTopNodes ACTIVATED ===", topNodes);
+  } catch (e) {
+    console.error("=== activateTopNodes ERROR ===", e);
   }
 }

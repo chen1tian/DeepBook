@@ -526,8 +526,18 @@ export default function DialogueView({
       if (picked) config = picked;
     }
     if (!config) return;
-    // only analyze if there are plot lines
-    const ps = plotStateRef.current;
+
+    // auto-load plot state from server if ref is empty
+    let ps = plotStateRef.current;
+    if (!ps.plotLines.length) {
+      try {
+        const r = await fetch(`/api/plot-state?dialogueId=${dialogueId}`);
+        if (r.ok) {
+          const d = await r.json();
+          if (d.state) { plotStateRef.current = d.state; ps = d.state; setHasPlotData(d.state.plotLines.length > 0); }
+        }
+      } catch { /* */ }
+    }
     if (!ps.plotLines.some((l) => l.status === "active")) return;
 
     try {
@@ -1204,6 +1214,11 @@ export default function DialogueView({
         open={activePanel === "plot"}
         onClose={() => setActivePanel(null)}
         dialogueId={dialogueId}
+        onAnalyze={() => {
+          triggerAnalysis();
+          triggerPlotAnalysis();
+          triggerPlotGeneration();
+        }}
       />
       <PlotSettingsPanel
         open={plotSettingsOpen}
