@@ -336,6 +336,29 @@ export function saveCompactionThreshold(threshold: number): void {
   localStorage.setItem(COMPACTION_KEY, String(clamped));
 }
 
+// --- display settings ---
+
+const DISPLAY_COUNT_KEY = "deepbook_display_count";
+const DEFAULT_DISPLAY_COUNT = 30;
+
+export function getDisplayMessageCount(): number {
+  if (typeof window === "undefined") return DEFAULT_DISPLAY_COUNT;
+  try {
+    const raw = localStorage.getItem(DISPLAY_COUNT_KEY);
+    if (raw) {
+      const val = parseInt(raw, 10);
+      if (val >= 10 && val <= 200) return val;
+    }
+  } catch { /* */ }
+  return DEFAULT_DISPLAY_COUNT;
+}
+
+export function saveDisplayMessageCount(count: number): void {
+  if (typeof window === "undefined") return;
+  const clamped = Math.max(10, Math.min(200, count));
+  localStorage.setItem(DISPLAY_COUNT_KEY, String(clamped));
+}
+
 export function getDefaultBaseUrl(provider: ProviderType): string {
   if (provider === "deepseek") return DEEPSEEK_BASE;
   return "https://api.openai.com/v1";

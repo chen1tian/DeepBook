@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Loader2, ArrowLeft, Menu, X, Trash2, Plus, MessageSquare, Settings, CheckSquare, RefreshCw, RotateCw, Pencil, Check, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { getConnectionConfig, getConnections, getAnalysisSettings, getPlotSettings, getCompactionThreshold } from "@/lib/storage";
+import { getConnectionConfig, getConnections, getAnalysisSettings, getPlotSettings, getCompactionThreshold, getDisplayMessageCount } from "@/lib/storage";
 import type { StoryState, CharacterInfo, StorySetting } from "@/lib/story-state-types";
 import type { LocationNetwork } from "@/lib/location-types";
 import StoryStateBar, { type PanelType } from "./StoryStateBar";
@@ -68,6 +68,7 @@ export default function DialogueView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const analyzingRef = useRef(false);
+  const [, setDisplayTick] = useState(0); // force re-render on settings change
   const locationAnalyzingRef = useRef(false);
   const userScrolledUpRef = useRef(false); // true = 用户已上滑，暂停自动滚动
   const prevScrollTopRef = useRef(0);
@@ -125,6 +126,13 @@ export default function DialogueView({
 
   useEffect(() => { fetchList(); }, [fetchList]);
 
+  // listen for display settings changes
+  useEffect(() => {
+    function handle() { setDisplayTick((t) => t + 1); }
+    window.addEventListener("deepbook:settings-changed", handle);
+    return () => window.removeEventListener("deepbook:settings-changed", handle);
+  }, []);
+
   // load story state when dialogue changes
   useEffect(() => {
     if (!dialogueId) {
@@ -155,6 +163,28 @@ export default function DialogueView({
         if (locRes.ok) {
           const locData = await locRes.json();
           if (locData.network) setLocationNetwork(locData.network);
+        }
+      } catch { /* */ }
+    }
+    load();
+  }, [dialogueId]);
+
+  // load plot state when dialogue changes
+  useEffect(() => {
+    if (!dialogueId) {
+      plotStateRef.current = { plotLines: [] };
+      setHasPlotData(false);
+      return;
+    }
+    async function load() {
+      try {
+        const res = await fetch(`/api/plot-state?dialogueId=${dialogueId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.state) {
+            plotStateRef.current = data.state;
+            setHasPlotData(data.state.plotLines.length > 0);
+          }
         }
       } catch { /* */ }
     }
@@ -800,6 +830,9 @@ export default function DialogueView({
         {messages.map((m, i) => {
           const isUser = m.role === "user";
           const isSelected = selectedIndices.has(i);
+          const displayLimit = getDisplayMessageCount();
+          // only render last N messages for UI performance
+          if (messages.length > displayLimit && i < messages.length - displayLimit) return null;
           return (
           <div
             key={i}

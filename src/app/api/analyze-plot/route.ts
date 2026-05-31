@@ -66,46 +66,47 @@ export async function POST(req: NextRequest) {
 
 function buildPlotAnalysisPrompt(state: PlotState): string {
   const activeLines = state.plotLines.filter((l) => l.status === "active");
-  const pendingNodes: string[] = [];
   const activeNodes: string[] = [];
+  const pendingLines: string[] = [];
 
   for (const line of activeLines) {
-    for (const node of line.nodes) {
-      if (node.status === "active") activeNodes.push(`[${line.title}] ${node.content}`);
-      if (node.status === "pending" && line.nodes.some((n) => n.status === "active")) {
-        pendingNodes.push(`[${line.title}] ${node.content}`);
-      }
+    const nodeList = line.nodes.map((n, i) => {
+      const marker = n.status === "active" ? "●" : n.status === "completed" ? "✓" : n.status === "skipped" ? "✗" : "○";
+      return `  节点${i} [${marker}]: ${n.content}`;
+    }).join("\n");
+
+    if (line.nodes.some((n) => n.status === "active")) {
+      const active = line.nodes.find((n) => n.status === "active");
+      if (active) activeNodes.push(`[${line.title}] 节点${active.order}: ${active.content}`);
+    }
+
+    // show full node list for lines with any pending nodes
+    if (line.nodes.some((n) => n.status === "pending")) {
+      pendingLines.push(`【${line.title}】\n${nodeList}`);
     }
   }
 
-  // also include first pending nodes for lines without active
-  for (const line of activeLines) {
-    if (!line.nodes.some((n) => n.status === "active")) {
-      const firstPending = line.nodes.find((n) => n.status === "pending");
-      if (firstPending) pendingNodes.push(`[${line.title}] ${firstPending.content}`);
-    }
-  }
-
-  return `你是一个剧情状态追踪器。根据最新的对话内容，判断以下剧情节点的状态变化。
+  return `你是一个剧情状态追踪器。根据最新的对话内容，判断以下剧情线中节点的状态变化。
 
 当前激活的节点：
 ${activeNodes.length > 0 ? activeNodes.map((n) => `- ${n}`).join("\n") : "（无）"}
 
-待激活的节点：
-${pendingNodes.length > 0 ? pendingNodes.map((n) => `- ${n}`).join("\n") : "（无）"}
+所有待处理的剧情线（含全部节点）：
+${pendingLines.length > 0 ? pendingLines.join("\n\n") : "（无）"}
 
-请返回 JSON，格式如下（只列出有变化的节点）：
+请返回 JSON，使用节点索引（节点0、节点1、节点2...）来标识：
 {
-  "activations": ["剧情线标题::节点内容"],  // pending→active
-  "completions": ["剧情线标题::节点内容"],  // active→completed
-  "skips": ["剧情线标题::节点内容"],        // pending→skipped（情节跳跃）
-  "archiveLines": ["剧情线标题"]            // 整条线归档
+  "activations": ["剧情线标题::0"],   // pending→active（填节点索引）
+  "completions": ["剧情线标题::0"],  // active→completed
+  "skips": ["剧情线标题::1"],        // pending→skipped
+  "archiveLines": ["剧情线标题"]     // 整条线归档
 }
 
 注意：
 1. 只返回 JSON，不要其他文字
 2. 只列出确实有变化的节点
-3. 如果没有任何变化，返回空对象 {}`;
+3. 每条剧情线同一时间最多一个 active 节点
+4. 如果没有任何变化，返回空对象 {}`;
 }
 
 function parsePlotUpdates(raw: string, state: PlotState): Record<string, string[]> {
@@ -114,37 +115,37 @@ function parsePlotUpdates(raw: string, state: PlotState): Record<string, string[
     const fence = json.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fence) json = fence[1].trim();
     const parsed = JSON.parse(json);
-
     const now = new Date().toISOString();
+
+    // helper: resolve node by index-first, fallback to content substring match
+    function findNode(line: typeof state.plotLines[0], idxStr: string, matchStatus: string) {
+      const idx = parseInt(idxStr, 10);
+      if (!isNaN(idx)) return line.nodes[idx];
+      // fallback: substring match
+      return line.nodes.find((n) => n.content.includes(idxStr) && n.status === matchStatus);
+    }
 
     // process completions
     for (const key of (parsed.completions || [])) {
-      const [lineTitle, nodeContent] = key.split("::");
+      const [lineTitle, idxStr] = key.split("::");
       const line = state.plotLines.find((l) => l.title === lineTitle);
       if (!line) continue;
-      const node = line.nodes.find((n) => n.content === nodeContent && n.status === "active");
-      if (node) {
+      const node = findNode(line, idxStr, "active");
+      if (node && node.status === "active") {
         node.status = "completed";
         node.completedAt = now;
-        // activate next pending node
         const next = line.nodes.find((n) => n.status === "pending");
-        if (next) {
-          next.status = "active";
-          next.activatedAt = now;
-          delete next.pendingSince;
-        }
+        if (next) { next.status = "active"; next.activatedAt = now; delete next.pendingSince; }
       }
     }
 
     // process activations
     for (const key of (parsed.activations || [])) {
-      const [lineTitle, nodeContent] = key.split("::");
+      const [lineTitle, idxStr] = key.split("::");
       const line = state.plotLines.find((l) => l.title === lineTitle);
-      if (!line) continue;
-      // ensure no other active in this line
-      if (line.nodes.some((n) => n.status === "active")) continue;
-      const node = line.nodes.find((n) => n.content === nodeContent && n.status === "pending");
-      if (node) {
+      if (!line || line.nodes.some((n) => n.status === "active")) continue;
+      const node = findNode(line, idxStr, "pending");
+      if (node && node.status === "pending") {
         node.status = "active";
         node.activatedAt = now;
         delete node.pendingSince;
@@ -153,10 +154,10 @@ function parsePlotUpdates(raw: string, state: PlotState): Record<string, string[
 
     // process skips
     for (const key of (parsed.skips || [])) {
-      const [lineTitle, nodeContent] = key.split("::");
+      const [lineTitle, idxStr] = key.split("::");
       const line = state.plotLines.find((l) => l.title === lineTitle);
       if (!line) continue;
-      const node = line.nodes.find((n) => n.content === nodeContent);
+      const node = findNode(line, idxStr, "");
       if (node) node.status = "skipped";
     }
 

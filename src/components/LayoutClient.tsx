@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Toolbar from "@/components/Toolbar";
 import ConnectionDialog from "@/components/ConnectionDialog";
+import AppSettingsPanel from "@/components/AppSettingsPanel";
 import FloatingChat from "@/components/FloatingChat";
 import LoginPage from "@/components/LoginPage";
 import { ViewProvider, useView } from "@/lib/view-context";
@@ -10,6 +11,7 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 
 function LayoutInner({ children }: { children: React.ReactNode }) {
   const [connectionOpen, setConnectionOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { showPresets, togglePresets, showPersonas, togglePersonas } = useView();
   const { user, loading, needsSetup, multiUser, logout } = useAuth();
 
@@ -50,6 +52,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         showPresets={showPresets}
         onOpenPersonas={togglePersonas}
         showPersonas={showPersonas}
+        onOpenSettings={() => setSettingsOpen(true)}
         user={user}
         multiUser={multiUser}
         onLogout={logout}
@@ -57,6 +60,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       <main className="min-h-[calc(100dvh-2.75rem)]">{children}</main>
       <FloatingChat />
       <ConnectionDialog open={connectionOpen} onClose={() => setConnectionOpen(false)} />
+      <AppSettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>
   );
 }
